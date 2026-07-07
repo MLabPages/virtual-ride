@@ -34,6 +34,13 @@ function setScene(sceneId) {
 }
 setScene(window.VR_SCENES[0].id);
 
+// 映像が終わったら次の景色へ(旅モード)。
+// スマホと接続中は、進行の指揮はスマホに任せる(スマホが次の sceneId を送る)。
+// 単独表示のときだけ、この画面自身で次へ進む。
+video.addEventListener("ended", () => {
+  if (!connected) setScene(window.vrNextSceneId(currentScene.id));
+});
+
 // ================= ペア接続(受信側) =================
 codeBox.textContent = "····";
 const link = window.VRLink.host({

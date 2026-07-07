@@ -1,20 +1,18 @@
 "use strict";
 
 // スマホ側(app.js)と Quest 表示側(display.js)で共有する定義。
-// baseSpeed: その映像が「等速(×1.0)」に見える想定速度 km/h
+// すべて一人称視点(ハンドル目線)のサイクリング映像。baseSpeed は
+// その映像が「等速(×1.0)」に見える想定の走行速度 km/h。
+// この並び順が、そのまま連続再生される「旅」のルートになる。
 window.VR_SCENES = [
-  { id: "ride-street", file: "videos/ride-street.mp4", title: "🚴 街なかライド",
-    baseSpeed: 15, credit: "https://www.pexels.com/video/5479440/" },
-  { id: "ride-sunset", file: "videos/ride-sunset.mp4", title: "🌇 夕暮れの旧市街",
-    baseSpeed: 15, credit: "https://www.pexels.com/video/14610894/" },
-  { id: "forest-road", file: "videos/forest-road.mp4", title: "🌲 森の道",
-    baseSpeed: 40, credit: "https://www.pexels.com/video/4254119/" },
-  { id: "drive-road", file: "videos/drive-road.mp4", title: "🛣 郊外ドライブ",
-    baseSpeed: 50, credit: "https://www.pexels.com/video/5921059/" },
-  { id: "drive-city", file: "videos/drive-city.mp4", title: "🚗 街をドライブ",
-    baseSpeed: 35, credit: "https://www.pexels.com/video/13646170/" },
-  { id: "walk-city", file: "videos/walk-city.mp4", title: "🚶 街を散歩",
-    baseSpeed: 5, credit: "https://www.pexels.com/video/5129237/" },
+  { id: "countryside", file: "videos/countryside.mp4", title: "🌾 黄金の田舎道",
+    baseSpeed: 22, credit: "https://www.pexels.com/video/4986006/" },
+  { id: "town", file: "videos/town.mp4", title: "🏘 静かな街並み",
+    baseSpeed: 16, credit: "https://www.pexels.com/video/37681296/" },
+  { id: "forest", file: "videos/forest.mp4", title: "🌲 森のトレイル",
+    baseSpeed: 16, credit: "https://www.pexels.com/video/5456060/" },
+  { id: "openroad", file: "videos/openroad.mp4", title: "🛣 見晴らしの道",
+    baseSpeed: 26, credit: "https://www.pexels.com/video/4533593/" },
 ];
 
 window.VR_TUNING = {
@@ -31,4 +29,12 @@ window.vrRateFor = function (speed, baseSpeed) {
 
 window.vrSceneById = function (id) {
   return window.VR_SCENES.find((s) => s.id === id) || window.VR_SCENES[0];
+};
+
+// 「旅」モード: 今の映像が終わったら次の映像へ。最後まで行ったら先頭へ戻る。
+// 1本をループさせず、景色が移り変わっていくので飽きにくい。
+window.vrNextSceneId = function (id) {
+  const list = window.VR_SCENES;
+  const i = list.findIndex((s) => s.id === id);
+  return list[(i + 1) % list.length].id;
 };

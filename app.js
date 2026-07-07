@@ -60,11 +60,10 @@ function buildSceneChips() {
   });
 }
 
-function setScene(sceneId) {
-  const scene = SCENES.find((s) => s.id === sceneId) || SCENES[0];
+function setScene(sceneId, persist = true) {
+  const scene = window.vrSceneById(sceneId);
   currentScene = scene;
-  settings.sceneId = scene.id;
-  saveSettings();
+  if (persist) { settings.sceneId = scene.id; saveSettings(); }
   document.querySelectorAll(".sceneChip").forEach((el) => {
     el.classList.toggle("active", el.dataset.sceneId === scene.id);
   });
@@ -72,6 +71,11 @@ function setScene(sceneId) {
   sceneVideo.load();
   if (displaySpeed >= STOP_SPEED) sceneVideo.play().catch(() => {});
 }
+
+// 映像が最後まで再生されたら、次の景色へ自動で進む(旅モード)
+sceneVideo.addEventListener("ended", () => {
+  setScene(window.vrNextSceneId(currentScene.id), false);
+});
 
 // ================= 計測モード =================
 function setMode(newMode) {
