@@ -277,6 +277,83 @@ html, body {
   cursor: pointer;
 }
 
+/* ---------- Quest 接続バッジ ---------- */
+#questBadge {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--accent-dim);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  font-size: 13px;
+  backdrop-filter: blur(8px);
+}
+#questBadge[hidden] { display: none; }
+#questDisconnect {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255,255,255,0.15);
+  color: var(--text);
+  cursor: pointer;
+  line-height: 1;
+}
+
+/* ---------- Quest ダイアログ ---------- */
+#questDialog {
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  background: #121831;
+  color: var(--text);
+  max-width: 420px;
+  width: calc(100vw - 40px);
+  padding: 20px 22px;
+}
+#questDialog::backdrop { background: rgba(0,0,0,0.55); }
+#questDialog h2 { margin: 0 0 14px; font-size: 18px; }
+.questSteps { margin: 0 0 14px; padding-left: 20px; font-size: 14px; line-height: 1.9; }
+.questUrl {
+  display: inline-block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--accent);
+  word-break: break-all;
+}
+#questDialog code {
+  background: rgba(255,255,255,0.1);
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 13px;
+}
+#questCodeInput {
+  width: 100%;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--panel-border);
+  background: #0b1020;
+  color: var(--text);
+  font-size: 28px;
+  letter-spacing: 10px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.questStatus { min-height: 20px; margin: 10px 0 0; font-size: 13px; color: var(--accent); }
+.ghostBtn {
+  padding: 9px 18px;
+  border-radius: 999px;
+  border: 1px solid var(--panel-border);
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+  margin-right: 8px;
+}
+
 /* ---------- スマホ縦向き ---------- */
 @media (max-width: 560px) {
   #speedValue { font-size: 36px; }

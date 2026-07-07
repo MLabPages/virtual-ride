@@ -43,6 +43,12 @@
     <div id="camPrivacy">🔒 映像は端末内だけで処理し、保存・送信しません</div>
   </aside>
 
+  <!-- Quest 接続中バッジ -->
+  <div id="questBadge" hidden>
+    🥽 Questへ送信中
+    <button id="questDisconnect" title="切断">×</button>
+  </div>
+
   <!-- 操作バー -->
   <footer id="controls">
     <div class="controlRow">
@@ -57,6 +63,7 @@
         <input id="manualSlider" type="range" min="0" max="40" step="0.5" value="0" aria-label="速度(km/h)">
       </div>
       <div class="iconBtns">
+        <button id="questBtn" class="iconBtn" title="Quest(VRゴーグル)へ速度を送る">🥽</button>
         <button id="resetBtn" class="iconBtn" title="距離・時間をリセット">↺</button>
         <button id="settingsBtn" class="iconBtn" title="設定">⚙</button>
         <button id="fullscreenBtn" class="iconBtn" title="全画面">⛶</button>
@@ -98,7 +105,33 @@
       <div class="dialogBtns"><button value="close" class="primaryBtn">閉じる</button></div>
     </form>
   </dialog>
+
+  <!-- Quest ペア接続ダイアログ -->
+  <dialog id="questDialog">
+    <form method="dialog">
+      <h2>🥽 Quest(VRゴーグル)に送る</h2>
+      <ol class="questSteps">
+        <li>Quest のブラウザで<strong>表示ページ</strong>を開く<br>
+          <span class="questUrl">mlabpages.github.io/virtual-ride/display.html</span></li>
+        <li>Quest の画面に出る<strong>4桁のコード</strong>を下に入力</li>
+      </ol>
+      <input id="questCodeInput" type="text" inputmode="numeric" pattern="[0-9]*"
+             maxlength="4" placeholder="1234" aria-label="接続コード">
+      <div id="questStatus" class="questStatus"></div>
+      <p class="settingsNote">
+        送信されるのは<strong>速度の数値だけ</strong>です。カメラ映像は送りません。
+        接続の仲介にのみ外部サービス(PeerJS)を使います。
+      </p>
+      <div class="dialogBtns">
+        <button value="cancel" class="ghostBtn">閉じる</button>
+        <button id="questConnectBtn" class="primaryBtn">接続</button>
+      </div>
+    </form>
+  </dialog>
 </main>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="scenes.js"></script>
+<script src="link.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

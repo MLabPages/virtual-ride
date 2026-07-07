@@ -1,25 +1,8 @@
 "use strict";
 
-// ================= シーン定義 =================
-// baseSpeed: その映像が「等速(×1.0)」に見える想定速度 km/h
-const SCENES = [
-  { id: "ride-street", file: "videos/ride-street.mp4", title: "🚴 街なかライド",
-    baseSpeed: 15, credit: "https://www.pexels.com/video/5479440/" },
-  { id: "ride-sunset", file: "videos/ride-sunset.mp4", title: "🌇 夕暮れの旧市街",
-    baseSpeed: 15, credit: "https://www.pexels.com/video/14610894/" },
-  { id: "forest-road", file: "videos/forest-road.mp4", title: "🌲 森の道",
-    baseSpeed: 40, credit: "https://www.pexels.com/video/4254119/" },
-  { id: "drive-road", file: "videos/drive-road.mp4", title: "🛣 郊外ドライブ",
-    baseSpeed: 50, credit: "https://www.pexels.com/video/5921059/" },
-  { id: "drive-city", file: "videos/drive-city.mp4", title: "🚗 街をドライブ",
-    baseSpeed: 35, credit: "https://www.pexels.com/video/13646170/" },
-  { id: "walk-city", file: "videos/walk-city.mp4", title: "🚶 街を散歩",
-    baseSpeed: 5, credit: "https://www.pexels.com/video/5129237/" },
-];
-
-const RATE_MIN = 0.25;   // ブラウザが安定して再生できる下限あたり
-const RATE_MAX = 3.0;
-const STOP_SPEED = 0.8;  // これ未満は「停止」とみなす km/h
+// ================= シーン定義(scenes.js から共有) =================
+const SCENES = window.VR_SCENES;
+const STOP_SPEED = window.VR_TUNING.STOP_SPEED;
 
 // ================= 設定(localStorage に保存) =================
 const defaultSettings = {
@@ -255,7 +238,7 @@ function tick(now) {
   // 再生速度に反映
   if (currentScene) {
     if (displaySpeed >= STOP_SPEED) {
-      const rate = Math.min(RATE_MAX, Math.max(RATE_MIN, displaySpeed / currentScene.baseSpeed));
+      const rate = window.vrRateFor(displaySpeed, currentScene.baseSpeed);
       if (Math.abs(sceneVideo.playbackRate - rate) > 0.02) sceneVideo.playbackRate = rate;
       if (sceneVideo.paused) sceneVideo.play().catch(() => {});
       pausedOverlay.classList.add("hidden");
@@ -279,6 +262,16 @@ function tick(now) {
   const min = Math.floor(movingSec / 60);
   const sec = Math.floor(movingSec % 60);
   timeValue.textContent = `${min}:${String(sec).padStart(2, "0")}`;
+
+  // Quest へ速度を送信(約8Hz)
+  if (questLink && questLink.connected && now - lastSentAt > 120) {
+    lastSentAt = now;
+    questLink.send({
+      speed: Number(displaySpeed.toFixed(2)),
+      rpm: currentRpm || null,
+      sceneId: currentScene ? currentScene.id : null,
+    });
+  }
 
   requestAnimationFrame(tick);
 }
@@ -328,6 +321,54 @@ $("creditLink").addEventListener("click", (e) => {
     ).join("<br>");
   }
   list.hidden = !list.hidden;
+});
+
+// ================= Quest へ送信(ペア接続) =================
+let questLink = null;
+let lastSentAt = 0;
+const questDialog = $("questDialog");
+const questCodeInput = $("questCodeInput");
+const questStatus = $("questStatus");
+const questConnectBtn = $("questConnectBtn");
+const questBadge = $("questBadge");
+
+$("questBtn").addEventListener("click", () => {
+  questCodeInput.value = "";
+  questStatus.textContent = "Quest の画面に出ている4桁コードを入力してください";
+  questDialog.showModal();
+  setTimeout(() => questCodeInput.focus(), 100);
+});
+
+questConnectBtn.addEventListener("click", (e) => {
+  e.preventDefault();
+  const code = (questCodeInput.value || "").trim();
+  if (!/^\d{4}$/.test(code)) {
+    questStatus.textContent = "4桁の数字を入力してください";
+    return;
+  }
+  if (questLink) { try { questLink.peer.destroy(); } catch (_) {} questLink = null; }
+  questStatus.textContent = "接続中…";
+  try {
+    questLink = window.VRLink.join(code, {
+      onOpen: () => {
+        questStatus.textContent = "つながりました。この画面のまま漕いでください。";
+        questBadge.hidden = false;
+        requestWakeLock();
+        setTimeout(() => { if (questDialog.open) questDialog.close(); }, 900);
+      },
+      onStatus: (s, info) => {
+        if (s === "disconnected") { questStatus.textContent = "切断されました"; questBadge.hidden = true; }
+        else if (s === "error") { questStatus.textContent = "接続エラー: " + (info || "") + "(コードとネットワークを確認)"; }
+      },
+    });
+  } catch (err) {
+    questStatus.textContent = err.message || "接続に失敗しました";
+  }
+});
+
+$("questDisconnect").addEventListener("click", () => {
+  if (questLink) { try { questLink.peer.destroy(); } catch (_) {} questLink = null; }
+  questBadge.hidden = true;
 });
 
 // ================= 起動 =================
