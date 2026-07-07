@@ -6,18 +6,18 @@
 // この並び順が、そのまま連続再生される「旅」のルートになる。
 window.VR_SCENES = [
   { id: "countryside", file: "videos/countryside.mp4", title: "🌾 黄金の田舎道",
-    baseSpeed: 22, credit: "https://www.pexels.com/video/4986006/" },
+    baseSpeed: 24, viewY: "38%", credit: "https://www.pexels.com/video/4986006/" },
   { id: "town", file: "videos/town.mp4", title: "🏘 静かな街並み",
-    baseSpeed: 16, credit: "https://www.pexels.com/video/37681296/" },
+    baseSpeed: 20, viewY: "34%", credit: "https://www.pexels.com/video/37681296/" },
   { id: "forest", file: "videos/forest.mp4", title: "🌲 森のトレイル",
-    baseSpeed: 16, credit: "https://www.pexels.com/video/5456060/" },
+    baseSpeed: 20, viewY: "36%", credit: "https://www.pexels.com/video/5456060/" },
   { id: "openroad", file: "videos/openroad.mp4", title: "🛣 見晴らしの道",
-    baseSpeed: 26, credit: "https://www.pexels.com/video/4533593/" },
+    baseSpeed: 28, viewY: "36%", credit: "https://www.pexels.com/video/4533593/" },
 ];
 
 window.VR_TUNING = {
   RATE_MIN: 0.25,   // ブラウザが安定して再生できる下限あたり
-  RATE_MAX: 3.0,
+  RATE_MAX: 1.7,    // 誤検出時に映像が極端な早送りにならないよう抑える
   STOP_SPEED: 0.8,  // これ未満は「停止」とみなす km/h
 };
 
@@ -29,6 +29,10 @@ window.vrRateFor = function (speed, baseSpeed) {
 
 window.vrSceneById = function (id) {
   return window.VR_SCENES.find((s) => s.id === id) || window.VR_SCENES[0];
+};
+
+window.vrApplySceneFraming = function (video, scene) {
+  video.style.objectPosition = `center ${scene.viewY || "38%"}`;
 };
 
 // 「旅」モード: 今の映像が終わったら次の映像へ。最後まで行ったら先頭へ戻る。

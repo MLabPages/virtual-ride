@@ -28,6 +28,7 @@ function setScene(sceneId) {
   if (currentScene && currentScene.id === scene.id) return;
   currentScene = scene;
   sceneName.textContent = scene.title;
+  window.vrApplySceneFraming(video, scene);
   video.src = scene.file;
   video.load();
   if (displaySpeed >= STOP_SPEED) video.play().catch(() => {});

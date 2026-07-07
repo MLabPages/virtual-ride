@@ -67,6 +67,7 @@ function setScene(sceneId, persist = true) {
   document.querySelectorAll(".sceneChip").forEach((el) => {
     el.classList.toggle("active", el.dataset.sceneId === scene.id);
   });
+  window.vrApplySceneFraming(sceneVideo, scene);
   sceneVideo.src = scene.file;
   sceneVideo.load();
   if (displaySpeed >= STOP_SPEED) sceneVideo.play().catch(() => {});
@@ -85,6 +86,10 @@ function setMode(newMode) {
   manualWrap.hidden = mode !== "manual";
   cameraPanel.hidden = mode !== "camera";
   if (mode === "camera") {
+    targetSpeed = 0;
+    currentRpm = null;
+    resetCadenceCandidate();
+    lastGoodTime = performance.now();
     startCamera();
     pausedSub.textContent = "ペダル(足元)がカメラに映るようにスマホを置いてください";
   } else {
@@ -106,16 +111,23 @@ let lastGoodTime = 0;
 const motionSamples = [];   // { t: 秒, m: 動き量 }
 const SAMPLE_HZ = 30;
 const ANA_W = 64, ANA_H = 48;
+const GRID_COLS = 8, GRID_ROWS = 6;
+const RPM_MIN = 35, RPM_MAX = 115;
 const anaCanvas = document.createElement("canvas");
 anaCanvas.width = ANA_W;
 anaCanvas.height = ANA_H;
 const anaCtx = anaCanvas.getContext("2d", { willReadFrequently: true });
 
 const SENS = {
-  high: { minMotion: 0.8, minCorr: 0.25 },
-  mid:  { minMotion: 1.5, minCorr: 0.32 },
-  low:  { minMotion: 2.5, minCorr: 0.42 },
+  high: { minMotion: 1.0, minCorr: 0.30, minFocus: 1.35, maxGlobal: 0.86 },
+  mid:  { minMotion: 1.8, minCorr: 0.38, minFocus: 1.55, maxGlobal: 0.78 },
+  low:  { minMotion: 2.8, minCorr: 0.48, minFocus: 1.80, maxGlobal: 0.68 },
 };
+let cadenceCandidate = null;
+
+function resetCadenceCandidate() {
+  cadenceCandidate = null;
+}
 
 async function startCamera() {
   if (camStream) return;
@@ -149,6 +161,7 @@ function stopCamera() {
   }
   camPreview.srcObject = null;
   currentRpm = null;
+  resetCadenceCandidate();
 }
 
 function sampleMotion() {
@@ -163,10 +176,28 @@ function sampleMotion() {
   }
   if (prevGray) {
     let sum = 0;
-    for (let i = 0; i < n; i++) sum += Math.abs(gray[i] - prevGray[i]);
+    const cellSums = new Float32Array(GRID_COLS * GRID_ROWS);
+    for (let i = 0; i < n; i++) {
+      const diff = Math.abs(gray[i] - prevGray[i]);
+      sum += diff;
+      const x = i % ANA_W;
+      const y = Math.floor(i / ANA_W);
+      const gx = Math.min(GRID_COLS - 1, Math.floor(x * GRID_COLS / ANA_W));
+      const gy = Math.min(GRID_ROWS - 1, Math.floor(y * GRID_ROWS / ANA_H));
+      cellSums[gy * GRID_COLS + gx] += diff;
+    }
     const m = sum / n; // 0〜255 スケールの平均差分
+    const avgCell = sum / cellSums.length;
+    let maxCell = 0;
+    for (const v of cellSums) maxCell = Math.max(maxCell, v);
+    let activeCells = 0;
+    for (const v of cellSums) {
+      if (maxCell > 0 && v > maxCell * 0.35) activeCells++;
+    }
+    const focus = maxCell / Math.max(1, avgCell);
+    const globalness = activeCells / cellSums.length;
     const t = performance.now() / 1000;
-    motionSamples.push({ t, m });
+    motionSamples.push({ t, m, focus, globalness });
     while (motionSamples.length && t - motionSamples[0].t > 6) motionSamples.shift();
     motionBar.style.width = Math.min(100, m * 12) + "%";
   }
@@ -181,6 +212,15 @@ function analyzeCadence() {
   const mean = values.reduce((a, b) => a + b, 0) / values.length;
   if (mean < sens.minMotion) {
     camStatus.textContent = "動きが見えません。ペダルが映る位置にスマホを置いてください。";
+    resetCadenceCandidate();
+    return;
+  }
+
+  const meanFocus = motionSamples.reduce((a, s) => a + s.focus, 0) / motionSamples.length;
+  const meanGlobal = motionSamples.reduce((a, s) => a + s.globalness, 0) / motionSamples.length;
+  if (meanFocus < sens.minFocus || meanGlobal > sens.maxGlobal) {
+    camStatus.textContent = "画面全体の揺れを拾っています。スマホを固定し、ペダルだけが動く構図にしてください。";
+    resetCadenceCandidate();
     return;
   }
 
@@ -203,6 +243,7 @@ function analyzeCadence() {
 
   if (bestLag < 0 || bestCorr < sens.minCorr) {
     camStatus.textContent = "リズムを探しています…(一定のペースで漕いでみてください)";
+    resetCadenceCandidate();
     return;
   }
 
@@ -210,10 +251,33 @@ function analyzeCadence() {
   // 両足が映る場合、動きのピークは半回転ごとに来るので 1 回転 = 周期×2
   const revSec = settings.legMode === "both" ? periodSec * 2 : periodSec;
   const rpm = 60 / revSec;
+  if (rpm < RPM_MIN || rpm > RPM_MAX) {
+    camStatus.textContent = "ペダルらしい速さではありません。カメラ位置と感度を調整してください。";
+    resetCadenceCandidate();
+    return;
+  }
   const kmh = (rpm * settings.mPerRev * 60) / 1000;
 
-  currentRpm = Math.round(rpm);
-  targetSpeed = kmh;
+  const now = performance.now();
+  if (!cadenceCandidate || now - cadenceCandidate.t > 1800 ||
+      Math.abs(rpm - cadenceCandidate.rpm) > Math.max(10, cadenceCandidate.rpm * 0.18)) {
+    cadenceCandidate = { rpm, kmh, t: now, seen: 1 };
+    camStatus.textContent = "リズム確認中…";
+    return;
+  }
+
+  cadenceCandidate.rpm = cadenceCandidate.rpm * 0.65 + rpm * 0.35;
+  cadenceCandidate.kmh = cadenceCandidate.kmh * 0.65 + kmh * 0.35;
+  cadenceCandidate.t = now;
+  cadenceCandidate.seen += 1;
+  if (cadenceCandidate.seen < 2) {
+    camStatus.textContent = "リズム確認中…";
+    return;
+  }
+
+  currentRpm = Math.round(cadenceCandidate.rpm);
+  const maxStep = 3.2;
+  targetSpeed += Math.max(-maxStep, Math.min(maxStep, cadenceCandidate.kmh - targetSpeed));
   lastGoodTime = performance.now();
   camStatus.textContent = `検出中: ${currentRpm} rpm`;
 }
@@ -338,7 +402,7 @@ const questBadge = $("questBadge");
 
 $("questBtn").addEventListener("click", () => {
   questCodeInput.value = "";
-  questStatus.textContent = "Quest の画面に出ている4桁コードを入力してください";
+  questStatus.textContent = "表示画面に出ている4桁コードを入力してください";
   questDialog.showModal();
   setTimeout(() => questCodeInput.focus(), 100);
 });
@@ -355,7 +419,7 @@ questConnectBtn.addEventListener("click", (e) => {
   try {
     questLink = window.VRLink.join(code, {
       onOpen: () => {
-        questStatus.textContent = "つながりました。この画面のまま漕いでください。";
+        questStatus.textContent = "つながりました。スマホはペダル撮影用として固定してください。";
         questBadge.hidden = false;
         requestWakeLock();
         setTimeout(() => { if (questDialog.open) questDialog.close(); }, 900);
