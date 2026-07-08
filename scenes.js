@@ -1,18 +1,16 @@
 "use strict";
 
 // スマホ側(app.js)と Quest 表示側(display.js)で共有する定義。
-// すべて一人称視点(ハンドル目線)のサイクリング映像。baseSpeed は
+// ずっと眺めやすい景色を優先した映像。baseSpeed は
 // その映像が「等速(×1.0)」に見える想定の走行速度 km/h。
 // この並び順が、そのまま連続再生される「旅」のルートになる。
 window.VR_SCENES = [
-  { id: "countryside", file: "videos/countryside.mp4", title: "🌾 黄金の田舎道",
-    baseSpeed: 24, viewY: "38%", credit: "https://www.pexels.com/video/4986006/" },
-  { id: "town", file: "videos/town.mp4", title: "🏘 静かな街並み",
-    baseSpeed: 20, viewY: "34%", credit: "https://www.pexels.com/video/37681296/" },
-  { id: "forest", file: "videos/forest.mp4", title: "🌲 森のトレイル",
-    baseSpeed: 20, viewY: "36%", credit: "https://www.pexels.com/video/5456060/" },
-  { id: "openroad", file: "videos/openroad.mp4", title: "🛣 見晴らしの道",
-    baseSpeed: 28, viewY: "36%", credit: "https://www.pexels.com/video/4533593/" },
+  { id: "coast", file: "videos/coast.mp4", title: "🌊 海辺の海岸線",
+    baseSpeed: 22, viewY: "45%", credit: "https://www.pexels.com/video/13843677/" },
+  { id: "paris", file: "videos/paris.mp4", title: "🇫🇷 パリの街並み",
+    baseSpeed: 18, viewY: "45%", credit: "https://www.pexels.com/video/32382194/" },
+  { id: "autumn", file: "videos/autumn.mp4", title: "🍁 紅葉の小道",
+    baseSpeed: 18, viewY: "42%", credit: "https://www.pexels.com/video/1580455/" },
 ];
 
 window.VR_TUNING = {
