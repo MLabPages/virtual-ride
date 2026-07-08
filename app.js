@@ -24,6 +24,7 @@ function saveSettings() {
 // ================= 要素 =================
 const $ = (id) => document.getElementById(id);
 const sceneVideo = $("sceneVideo");
+sceneVideo.muted = true; // 明示的にミュート状態を設定(自動再生ポリシー対策)
 const pausedOverlay = $("pausedOverlay");
 const pausedSub = $("pausedSub");
 const speedValue = $("speedValue");
@@ -70,7 +71,16 @@ function setScene(sceneId, persist = true) {
   window.vrApplySceneFraming(sceneVideo, scene);
   sceneVideo.src = scene.file;
   sceneVideo.load();
-  if (displaySpeed >= STOP_SPEED) sceneVideo.play().catch(() => {});
+  sceneVideo.dataset.playPending = "";
+  if (displaySpeed >= STOP_SPEED) {
+    sceneVideo.dataset.playPending = "true";
+    sceneVideo.play()
+      .then(() => { sceneVideo.dataset.playPending = ""; })
+      .catch((err) => {
+        sceneVideo.dataset.playPending = "";
+        console.warn("Playback failed after load:", err);
+      });
+  }
 }
 
 // 映像が最後まで再生されたら、次の景色へ自動で進む(旅モード)
@@ -308,10 +318,21 @@ function tick(now) {
     if (displaySpeed >= STOP_SPEED) {
       const rate = window.vrRateFor(displaySpeed, currentScene.baseSpeed);
       if (Math.abs(sceneVideo.playbackRate - rate) > 0.02) sceneVideo.playbackRate = rate;
-      if (sceneVideo.paused) sceneVideo.play().catch(() => {});
+      
+      if (sceneVideo.paused && !sceneVideo.dataset.playPending) {
+        sceneVideo.dataset.playPending = "true";
+        sceneVideo.play()
+          .then(() => { sceneVideo.dataset.playPending = ""; })
+          .catch((err) => {
+            sceneVideo.dataset.playPending = "";
+            console.warn("Playback failed:", err);
+          });
+      }
+      
       pausedOverlay.classList.add("hidden");
       rateValue.textContent = rate.toFixed(1);
     } else {
+      sceneVideo.dataset.playPending = "";
       if (!sceneVideo.paused) sceneVideo.pause();
       pausedOverlay.classList.remove("hidden");
       rateValue.textContent = "0.0";

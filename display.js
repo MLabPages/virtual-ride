@@ -3,6 +3,7 @@ import * as THREE from "three";
 // ================= 要素・状態 =================
 const $ = (id) => document.getElementById(id);
 const video = $("video");
+video.muted = true; // 明示的にミュート状態を設定(自動再生ポリシー対策)
 const pair = $("pair");
 const codeBox = $("codeBox");
 const pairStatus = $("pairStatus");
@@ -31,7 +32,16 @@ function setScene(sceneId) {
   window.vrApplySceneFraming(video, scene);
   video.src = scene.file;
   video.load();
-  if (displaySpeed >= STOP_SPEED) video.play().catch(() => {});
+  video.dataset.playPending = "";
+  if (displaySpeed >= STOP_SPEED) {
+    video.dataset.playPending = "true";
+    video.play()
+      .then(() => { video.dataset.playPending = ""; })
+      .catch((err) => {
+        video.dataset.playPending = "";
+        console.warn("Playback failed after load:", err);
+      });
+  }
 }
 setScene(window.VR_SCENES[0].id);
 
@@ -89,9 +99,20 @@ function update(now) {
     if (displaySpeed >= STOP_SPEED) {
       const rate = window.vrRateFor(displaySpeed, currentScene.baseSpeed);
       if (Math.abs(video.playbackRate - rate) > 0.02) video.playbackRate = rate;
-      if (video.paused) video.play().catch(() => {});
+      
+      if (video.paused && !video.dataset.playPending) {
+        video.dataset.playPending = "true";
+        video.play()
+          .then(() => { video.dataset.playPending = ""; })
+          .catch((err) => {
+            video.dataset.playPending = "";
+            console.warn("Playback failed:", err);
+          });
+      }
+      
       rateVal.textContent = rate.toFixed(1);
     } else {
+      video.dataset.playPending = "";
       if (!video.paused) video.pause();
       rateVal.textContent = "0.0";
     }
@@ -150,7 +171,15 @@ $("vrBtn").addEventListener("click", async () => {
     });
     renderer.xr.setReferenceSpaceType("local-floor");
     await renderer.xr.setSession(session);
-    if (video.paused && displaySpeed >= STOP_SPEED) video.play().catch(() => {});
+    if (video.paused && displaySpeed >= STOP_SPEED && !video.dataset.playPending) {
+      video.dataset.playPending = "true";
+      video.play()
+        .then(() => { video.dataset.playPending = ""; })
+        .catch((err) => {
+          video.dataset.playPending = "";
+          console.warn("Playback failed in VR mode:", err);
+        });
+    }
     // XR 中は renderer 側のループが毎フレーム loop() を呼ぶ
     renderer.setAnimationLoop(loop);
     session.addEventListener("end", () => {
