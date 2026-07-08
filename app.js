@@ -24,6 +24,7 @@ function saveSettings() {
 // ================= 要素 =================
 const $ = (id) => document.getElementById(id);
 const sceneVideo = $("sceneVideo");
+sceneVideo.crossOrigin = "anonymous";
 sceneVideo.muted = true; // 明示的にミュート状態を設定(自動再生ポリシー対策)
 const pausedOverlay = $("pausedOverlay");
 const pausedSub = $("pausedSub");
@@ -51,7 +52,7 @@ let currentScene = null;
 // ================= シーン =================
 function buildSceneChips() {
   const wrap = $("sceneChips");
-  SCENES.forEach((scene) => {
+  SCENES.filter((scene) => scene.chip !== false).forEach((scene) => {
     const btn = document.createElement("button");
     btn.className = "sceneChip";
     btn.textContent = scene.title;
@@ -65,8 +66,9 @@ function setScene(sceneId, persist = true) {
   const scene = window.vrSceneById(sceneId);
   currentScene = scene;
   if (persist) { settings.sceneId = scene.id; saveSettings(); }
+  const activeChipId = window.vrChapterSceneId(scene.id);
   document.querySelectorAll(".sceneChip").forEach((el) => {
-    el.classList.toggle("active", el.dataset.sceneId === scene.id);
+    el.classList.toggle("active", el.dataset.sceneId === activeChipId);
   });
   window.vrApplySceneFraming(sceneVideo, scene);
   sceneVideo.src = scene.file;
@@ -87,6 +89,9 @@ function setScene(sceneId, persist = true) {
 sceneVideo.addEventListener("ended", () => {
   setScene(window.vrNextSceneId(currentScene.id), false);
 });
+sceneVideo.addEventListener("error", () => {
+  if (currentScene) setScene(window.vrNextSceneId(currentScene.id), false);
+});
 
 // ================= 計測モード =================
 function setMode(newMode) {
@@ -105,7 +110,7 @@ function setMode(newMode) {
   } else {
     stopCamera();
     targetSpeed = Number(manualSlider.value);
-    pausedSub.textContent = "下のスライダーで速度を上げると出発します";
+    pausedSub.textContent = `下のスライダーで速度を上げると出発します(${window.vrRouteMinutesText()})`;
   }
 }
 

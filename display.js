@@ -3,6 +3,7 @@ import * as THREE from "three";
 // ================= 要素・状態 =================
 const $ = (id) => document.getElementById(id);
 const video = $("video");
+video.crossOrigin = "anonymous";
 video.muted = true; // 明示的にミュート状態を設定(自動再生ポリシー対策)
 const pair = $("pair");
 const codeBox = $("codeBox");
@@ -50,6 +51,9 @@ setScene(window.VR_SCENES[0].id);
 // 単独表示のときだけ、この画面自身で次へ進む。
 video.addEventListener("ended", () => {
   setScene(window.vrNextSceneId(currentScene.id));
+});
+video.addEventListener("error", () => {
+  if (currentScene) setScene(window.vrNextSceneId(currentScene.id));
 });
 
 // ================= ペア接続(受信側) =================
