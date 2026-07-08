@@ -465,3 +465,21 @@ buildSceneChips();
 setScene(settings.sceneId);
 setMode("manual");
 requestAnimationFrame(tick);
+
+// ================= 自動再生ブロック解除 =================
+function setupUnlock() {
+  const unlock = () => {
+    if (sceneVideo.paused) {
+      sceneVideo.play().then(() => {
+        if (displaySpeed < STOP_SPEED) sceneVideo.pause();
+      }).catch(() => {});
+    }
+    document.removeEventListener("pointerdown", unlock);
+    document.removeEventListener("keydown", unlock);
+    document.removeEventListener("touchstart", unlock);
+  };
+  document.addEventListener("pointerdown", unlock);
+  document.addEventListener("keydown", unlock);
+  document.addEventListener("touchstart", unlock);
+}
+setupUnlock();

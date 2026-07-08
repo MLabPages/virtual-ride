@@ -49,7 +49,7 @@ setScene(window.VR_SCENES[0].id);
 // スマホと接続中は、進行の指揮はスマホに任せる(スマホが次の sceneId を送る)。
 // 単独表示のときだけ、この画面自身で次へ進む。
 video.addEventListener("ended", () => {
-  if (!connected) setScene(window.vrNextSceneId(currentScene.id));
+  setScene(window.vrNextSceneId(currentScene.id));
 });
 
 // ================= ペア接続(受信側) =================
@@ -209,3 +209,21 @@ function startRAF() {
 startRAF();
 
 initXRIfSupported();
+
+// ================= 自動再生ブロック解除 =================
+function setupUnlock() {
+  const unlock = () => {
+    if (video.paused) {
+      video.play().then(() => {
+        if (displaySpeed < STOP_SPEED) video.pause();
+      }).catch(() => {});
+    }
+    document.removeEventListener("pointerdown", unlock);
+    document.removeEventListener("keydown", unlock);
+    document.removeEventListener("touchstart", unlock);
+  };
+  document.addEventListener("pointerdown", unlock);
+  document.addEventListener("keydown", unlock);
+  document.addEventListener("touchstart", unlock);
+}
+setupUnlock();
