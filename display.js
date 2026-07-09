@@ -3,6 +3,7 @@ import * as THREE from "three";
 // ================= 要素・状態 =================
 const $ = (id) => document.getElementById(id);
 const video = $("video");
+const sceneFade = $("sceneFade");
 video.crossOrigin = "anonymous";
 video.muted = true; // 明示的にミュート状態を設定(自動再生ポリシー対策)
 const pair = $("pair");
@@ -25,7 +26,9 @@ let lastDataAt = 0;
 let connected = false;
 
 // ================= シーン =================
-function setScene(sceneId) {
+let sceneTransitionTimer = null;
+
+function applyScene(sceneId) {
   const scene = window.vrSceneById(sceneId);
   if (currentScene && currentScene.id === scene.id) return;
   currentScene = scene;
@@ -44,16 +47,42 @@ function setScene(sceneId) {
       });
   }
 }
+
+function setScene(sceneId, transition = false) {
+  const scene = window.vrSceneById(sceneId);
+  if (currentScene && currentScene.id === scene.id) return;
+  if (transition && currentScene && sceneFade) {
+    sceneFade.classList.add("visible");
+    clearTimeout(sceneTransitionTimer);
+    sceneTransitionTimer = setTimeout(() => {
+      applyScene(scene.id);
+      requestAnimationFrame(() => sceneFade.classList.remove("visible"));
+    }, 260);
+    return;
+  }
+  applyScene(scene.id);
+  if (sceneFade) sceneFade.classList.remove("visible");
+}
+
+function cueSceneFade() {
+  if (!sceneFade || !currentScene || !Number.isFinite(video.duration)) return;
+  const remaining = video.duration - video.currentTime;
+  if (remaining > 0 && remaining < 0.75 && displaySpeed >= STOP_SPEED) {
+    sceneFade.classList.add("visible");
+  }
+}
 setScene(window.VR_SCENES[0].id);
+
+video.addEventListener("timeupdate", cueSceneFade);
 
 // 映像が終わったら次の景色へ(旅モード)。
 // スマホと接続中は、進行の指揮はスマホに任せる(スマホが次の sceneId を送る)。
 // 単独表示のときだけ、この画面自身で次へ進む。
 video.addEventListener("ended", () => {
-  setScene(window.vrNextSceneId(currentScene.id));
+  setScene(window.vrNextSceneId(currentScene.id), true);
 });
 video.addEventListener("error", () => {
-  if (currentScene) setScene(window.vrNextSceneId(currentScene.id));
+  if (currentScene) setScene(window.vrNextSceneId(currentScene.id), true);
 });
 
 // ================= ペア接続(受信側) =================
@@ -82,7 +111,7 @@ const link = window.VRLink.host({
     targetSpeed = d.speed;
     currentRpm = d.rpm || null;
     lastDataAt = performance.now();
-    if (d.sceneId) setScene(d.sceneId);
+    if (d.sceneId) setScene(d.sceneId, true);
   },
 });
 
@@ -118,6 +147,7 @@ function update(now) {
     } else {
       video.dataset.playPending = "";
       if (!video.paused) video.pause();
+      if (sceneFade) sceneFade.classList.remove("visible");
       rateVal.textContent = "0.0";
     }
   }

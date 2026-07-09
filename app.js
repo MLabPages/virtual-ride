@@ -24,6 +24,7 @@ function saveSettings() {
 // ================= 要素 =================
 const $ = (id) => document.getElementById(id);
 const sceneVideo = $("sceneVideo");
+const sceneFade = $("sceneFade");
 sceneVideo.crossOrigin = "anonymous";
 sceneVideo.muted = true; // 明示的にミュート状態を設定(自動再生ポリシー対策)
 const pausedOverlay = $("pausedOverlay");
@@ -57,12 +58,14 @@ function buildSceneChips() {
     btn.className = "sceneChip";
     btn.textContent = scene.title;
     btn.dataset.sceneId = scene.id;
-    btn.addEventListener("click", () => setScene(scene.id));
+    btn.addEventListener("click", () => setScene(scene.id, true, true));
     wrap.appendChild(btn);
   });
 }
 
-function setScene(sceneId, persist = true) {
+let sceneTransitionTimer = null;
+
+function applyScene(sceneId, persist = true) {
   const scene = window.vrSceneById(sceneId);
   currentScene = scene;
   if (persist) { settings.sceneId = scene.id; saveSettings(); }
@@ -85,12 +88,35 @@ function setScene(sceneId, persist = true) {
   }
 }
 
+function setScene(sceneId, persist = true, transition = false) {
+  if (transition && currentScene && sceneFade) {
+    sceneFade.classList.add("visible");
+    clearTimeout(sceneTransitionTimer);
+    sceneTransitionTimer = setTimeout(() => {
+      applyScene(sceneId, persist);
+      requestAnimationFrame(() => sceneFade.classList.remove("visible"));
+    }, 260);
+    return;
+  }
+  applyScene(sceneId, persist);
+  if (sceneFade) sceneFade.classList.remove("visible");
+}
+
+function cueSceneFade() {
+  if (!sceneFade || !currentScene || !Number.isFinite(sceneVideo.duration)) return;
+  const remaining = sceneVideo.duration - sceneVideo.currentTime;
+  if (remaining > 0 && remaining < 0.75 && displaySpeed >= STOP_SPEED) {
+    sceneFade.classList.add("visible");
+  }
+}
+sceneVideo.addEventListener("timeupdate", cueSceneFade);
+
 // 映像が最後まで再生されたら、次の景色へ自動で進む(旅モード)
 sceneVideo.addEventListener("ended", () => {
-  setScene(window.vrNextSceneId(currentScene.id), false);
+  setScene(window.vrNextSceneId(currentScene.id), false, true);
 });
 sceneVideo.addEventListener("error", () => {
-  if (currentScene) setScene(window.vrNextSceneId(currentScene.id), false);
+  if (currentScene) setScene(window.vrNextSceneId(currentScene.id), false, true);
 });
 
 // ================= 計測モード =================
@@ -340,6 +366,7 @@ function tick(now) {
       sceneVideo.dataset.playPending = "";
       if (!sceneVideo.paused) sceneVideo.pause();
       pausedOverlay.classList.remove("hidden");
+      if (sceneFade) sceneFade.classList.remove("visible");
       rateValue.textContent = "0.0";
     }
   }
