@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import vm from "node:vm";
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
@@ -53,6 +53,16 @@ for (const scene of vr.VR_SCENES) {
   assert.ok(!/^https:\/\//.test(scene.file), `scene must use a bundled local file: ${scene.id}`);
   assert.ok(existsSync(new URL(`./${scene.file}`, import.meta.url)), `missing local video: ${scene.file}`);
 }
+
+const referencedVideoNames = new Set(vr.VR_SCENES.map((scene) => scene.file.replace(/^videos\//, "")));
+const bundledVideoNames = readdirSync(new URL("./videos/", import.meta.url))
+  .filter((name) => name.toLowerCase().endsWith(".mp4"));
+const unusedVideoNames = bundledVideoNames.filter((name) => !referencedVideoNames.has(name));
+if (unusedVideoNames.length) {
+  console.warn(`Unused videos (${unusedVideoNames.length}): ${unusedVideoNames.join(", ")}`);
+}
+assert.ok(displaySource.includes('videoA') && displaySource.includes('videoB'), "display must use two video buffers");
+assert.ok(displaySource.includes('preloadNextScene'), "display must preload the next scene");
 
 const routeMinutes = vr.vrRouteEstimateSec() / 60;
 assert.ok(routeMinutes >= 2.5 && routeMinutes <= 15, `unexpected route length: ${routeMinutes.toFixed(1)} min`);

@@ -15,11 +15,12 @@
   html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
     font-family:"Hiragino Kaku Gothic ProN","Yu Gothic UI","Segoe UI",system-ui,sans-serif;overflow:hidden;}
   button{font:inherit;} button:focus-visible{outline:3px solid var(--accent);outline-offset:3px;}
-  #video{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;background:#000;}
-  #sceneFade{position:fixed;inset:0;pointer-events:none;background:rgba(4,7,14,.86);opacity:0;transition:opacity .45s ease;z-index:2;}
+  .sceneVideo{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;background:#000;opacity:0;transition:opacity .38s ease;z-index:0;}
+  .sceneVideo.active{opacity:1;z-index:1;}
+  #sceneFade{position:fixed;inset:0;pointer-events:none;background:rgba(4,7,14,.86);opacity:0;transition:opacity .45s ease;z-index:3;}
   #sceneFade.visible{opacity:1;}
   #dim{position:fixed;inset:0;pointer-events:none;
-    background:linear-gradient(to top,rgba(0,0,0,.5),transparent 28%);}
+    background:linear-gradient(to top,rgba(0,0,0,.5),transparent 28%);z-index:2;}
 
   /* ペア待ち画面 */
   #pair{position:fixed;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;
@@ -79,7 +80,8 @@
 </style>
 </head>
 <body>
-  <video id="video" playsinline muted preload="auto" aria-hidden="true"></video>
+  <video id="videoA" class="sceneVideo active" playsinline muted preload="auto" aria-hidden="true"></video>
+  <video id="videoB" class="sceneVideo" playsinline muted preload="auto" aria-hidden="true"></video>
   <div id="dim" aria-hidden="true"></div>
   <div id="sceneFade" aria-hidden="true"></div>
   <div id="rideState" aria-hidden="false">ペダルを漕ぐと出発します</div>

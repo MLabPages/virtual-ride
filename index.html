@@ -7,7 +7,6 @@
 <meta name="color-scheme" content="dark">
 <meta name="description" content="ペダルの速さに景色が連動する、ルームバイク向けの没入型バーチャルライド。カメラ計測・手動操作・PC表示に対応。">
 <title>バーチャルライド | ルームバイクで街めぐり</title>
-<link rel="preconnect" href="https://assets.mixkit.co" crossorigin>
 <link rel="preconnect" href="https://unpkg.com" crossorigin>
 <link rel="stylesheet" href="styles.css">
 </head>
@@ -39,15 +38,15 @@
       </div>
       <div class="hudJourney">
         <div class="journeyHeadline">
-          <span id="sceneTitle">海沿いの道路</span>
+          <span id="sceneTitle">田園へ向かう道</span>
           <span id="routePercent">0%</span>
         </div>
         <div id="routeTrack" class="routeTrack" role="progressbar" aria-label="ルート進捗" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
           <div id="routeProgress"></div>
         </div>
         <div class="journeyMeta">
-          <span id="nextScene">次: 山道へ</span>
-          <span id="routeEta">約11分</span>
+          <span id="nextScene">次: 水田の細道</span>
+          <span id="routeEta">18km/hで 約4分</span>
         </div>
       </div>
     </div>
@@ -134,8 +133,7 @@
       <p class="settingsNote">
         🔒 <strong>プライバシー:</strong> カメラ映像はこの端末のブラウザ内だけで処理され、
         保存・送信されません。景観動画の読み込みと画面接続にはインターネット通信を使います。<br>
-        映像素材はすべて <a href="https://mixkit.co/license/" target="_blank" rel="noopener">Mixkit Stock Video Free License</a> の
-        素材です(無料・商用利用可)。
+        映像素材は <a href="https://commons.wikimedia.org/wiki/File:Japan_Cycling_Tour_-_Bike_Ride_in_Japanese_Countryside_-_Nagoya,_Japan_(4K).webm" target="_blank" rel="noopener">Wikimedia Commonsの4K Japan Walk「Japan Cycling Tour」</a> （CC BY 3.0）を編集して使用しています。
         <a href="#" id="creditLink">映像クレジット一覧</a>
       </p>
       <p class="shortcutHelp"><strong>ショートカット:</strong> Space 開始/停止 ・ ← → 速度 ・ F 全画面 ・ R 走行記録</p>
@@ -155,7 +153,7 @@
         <div><strong id="summaryAverage">0.0</strong><span>平均 km/h</span></div>
         <div><strong id="summaryMax">0.0</strong><span>最高 km/h</span></div>
       </div>
-      <p id="summaryRoute" class="summaryRoute">海から夕暮れへのルートを0%走行</p>
+      <p id="summaryRoute" class="summaryRoute">田園ルートを0%走行</p>
       <p class="settingsNote">記録はこの端末内だけに保存され、12時間以内の再読み込みなら続きから再開できます。</p>
       <div class="dialogBtns summaryBtns">
         <button id="clearSessionBtn" type="button" class="dangerGhostBtn">記録をリセット</button>

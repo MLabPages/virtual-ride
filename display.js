@@ -1,26 +1,32 @@
 // ================= 要素・状態 =================
 const $ = (id) => document.getElementById(id);
-const video = $("video");
-const sceneFade = $("sceneFade");
-video.crossOrigin = "anonymous";
-video.muted = true; // 明示的にミュート状態を設定(自動再生ポリシー対策)
-const pair = $("pair");
-const codeBox = $("codeBox");
-const pairStatus = $("pairStatus");
-const hud = $("hud");
-const spdVal = $("spdVal");
-const rpmVal = $("rpmVal");
-const rateVal = $("rateVal");
-const sceneName = $("sceneName");
-const routePct = $("routePct");
-const routeBar = $("routeBar");
-const displayRouteTrack = $("displayRouteTrack");
-const nextName = $("nextName");
-const routeRemaining = $("routeRemaining");
-const sessionMeta = $("sessionMeta");
-const rideState = $("rideState");
-const reconnectNote = $("reconnectNote");
+const videos = [$('videoA'), $('videoB')];
+let video = videos[0];
+let standbyVideo = videos[1];
+const sceneFade = $('sceneFade');
 
+for (const element of videos) {
+  element.crossOrigin = 'anonymous';
+  element.muted = true;
+  element.playsInline = true;
+}
+
+const pair = $('pair');
+const codeBox = $('codeBox');
+const pairStatus = $('pairStatus');
+const hud = $('hud');
+const spdVal = $('spdVal');
+const rpmVal = $('rpmVal');
+const rateVal = $('rateVal');
+const sceneName = $('sceneName');
+const routePct = $('routePct');
+const routeBar = $('routeBar');
+const displayRouteTrack = $('displayRouteTrack');
+const nextName = $('nextName');
+const routeRemaining = $('routeRemaining');
+const sessionMeta = $('sessionMeta');
+const rideState = $('rideState');
+const reconnectNote = $('reconnectNote');
 const STOP_SPEED = window.VR_TUNING.STOP_SPEED;
 
 let targetSpeed = 0;
@@ -40,73 +46,240 @@ let lastDisplayInteractionAt = performance.now();
 
 function noteDisplayInteraction() {
   lastDisplayInteractionAt = performance.now();
-  document.body.classList.remove("displayFocus");
+  document.body.classList.remove('displayFocus');
 }
-document.addEventListener("pointerdown", noteDisplayInteraction);
-document.addEventListener("pointermove", noteDisplayInteraction, { passive: true });
-document.addEventListener("keydown", noteDisplayInteraction);
+document.addEventListener('pointerdown', noteDisplayInteraction);
+document.addEventListener('pointermove', noteDisplayInteraction, { passive: true });
+document.addEventListener('keydown', noteDisplayInteraction);
 
-// ================= シーン =================
-let sceneTransitionTimer = null;
+// ================= シーン（二重バッファ） =================
 let pendingSceneId = null;
 let sceneLoadToken = 0;
 let handledFailureToken = -1;
-let sceneLoadTimer = null;
+let preloadSerial = 0;
+let preloadedSceneId = null;
+let preloadPromise = null;
 const failedScenes = new Map();
 
-function applyScene(sceneId) {
-  const scene = window.vrSceneById(sceneId);
-  if (currentScene && currentScene.id === scene.id) return;
-  sceneLoadToken += 1;
-  const loadToken = sceneLoadToken;
-  pendingSceneId = null;
-  currentScene = scene;
-  sceneName.textContent = scene.title;
-  window.vrApplySceneFraming(video, scene);
-  video.src = scene.file;
-  video.load();
-  clearTimeout(sceneLoadTimer);
-  sceneLoadTimer = setTimeout(() => {
-    if (sceneLoadToken === loadToken && video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-      handleSceneFailure();
+const sleep = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
+const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+
+function sceneUrl(scene) {
+  return new URL(scene.file, document.baseURI).href;
+}
+
+function isReadyFor(target, scene) {
+  return target.dataset.sceneId === scene.id &&
+    target.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA;
+}
+
+function loadSceneInto(target, scene, timeoutMs = 15000) {
+  if (isReadyFor(target, scene)) return Promise.resolve(true);
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const expectedUrl = sceneUrl(scene);
+
+    const cleanup = () => {
+      target.removeEventListener('canplay', onReady);
+      target.removeEventListener('loadeddata', onReady);
+      target.removeEventListener('error', onError);
+      window.clearTimeout(timer);
+    };
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      fn(value);
+    };
+    const onReady = () => {
+      if (target.src !== expectedUrl || target.dataset.sceneId !== scene.id) return;
+      finish(resolve, true);
+    };
+    const onError = () => finish(reject, new Error(`動画を読み込めません: ${scene.file}`));
+    const timer = window.setTimeout(() => {
+      finish(reject, new Error(`動画の読み込みがタイムアウトしました: ${scene.file}`));
+    }, timeoutMs);
+
+    target.addEventListener('canplay', onReady);
+    target.addEventListener('loadeddata', onReady);
+    target.addEventListener('error', onError);
+    target.dataset.sceneId = scene.id;
+    target.dataset.playPending = '';
+    target.dataset.segmentEnded = '';
+    window.vrApplySceneFraming(target, scene);
+
+    if (target.src !== expectedUrl) {
+      target.src = scene.file;
+      target.load();
+    } else if (target.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      onReady();
+    } else {
+      // 同じURLの先読みが一度失敗していた場合も、明示的に再読み込みする。
+      target.load();
     }
-  }, 12000);
-  video.dataset.playPending = "";
-  video.dataset.segmentEnded = "";
-  if (displaySpeed >= STOP_SPEED) {
-    video.dataset.playPending = "true";
-    video.play()
-      .then(() => { video.dataset.playPending = ""; })
-      .catch((err) => {
-        video.dataset.playPending = "";
-        console.warn("Playback failed after load:", err);
-      });
+  });
+}
+
+function seekForScene(target, scene) {
+  if (target.readyState < HTMLMediaElement.HAVE_METADATA) return;
+
+  const remoteControls = connected && scene.id === desiredRemoteSceneId &&
+    Number.isFinite(desiredRemoteSceneTime);
+  const requestedTime = remoteControls ? desiredRemoteSceneTime : (scene.startSec || 0);
+  const duration = Number.isFinite(target.duration) ? target.duration : null;
+  const configuredEnd = Number.isFinite(scene.endSec) ? scene.endSec : duration;
+  const endAt = duration && configuredEnd ? Math.min(configuredEnd, duration) : configuredEnd;
+  const maxTime = Number.isFinite(endAt)
+    ? Math.max(scene.startSec || 0, endAt - 0.2)
+    : requestedTime;
+  const safeTime = Math.min(Math.max(scene.startSec || 0, requestedTime), maxTime);
+
+  if (Number.isFinite(safeTime) && Math.abs(target.currentTime - safeTime) > 0.15) {
+    try { target.currentTime = safeTime; } catch (_) {}
   }
 }
 
-function setScene(sceneId, transition = false) {
+function requestPlay(target) {
+  if (displaySpeed < STOP_SPEED || target.dataset.segmentEnded) return;
+  if (!target.paused || target.dataset.playPending) return;
+
+  target.dataset.playPending = 'true';
+  target.play()
+    .catch((err) => console.warn('Playback failed:', err))
+    .finally(() => { target.dataset.playPending = ''; });
+}
+
+async function preloadNextScene() {
+  if (!currentScene || pendingSceneId) return;
+  const next = window.vrSceneById(window.vrNextSceneId(currentScene.id));
+  if (preloadedSceneId === next.id && preloadPromise) return preloadPromise;
+
+  const serial = ++preloadSerial;
+  const target = standbyVideo;
+  preloadedSceneId = next.id;
+  preloadPromise = loadSceneInto(target, next, 20000)
+    .then(() => {
+      if (serial !== preloadSerial || target !== standbyVideo) return false;
+      seekForScene(target, next);
+      return true;
+    })
+    .catch((err) => {
+      if (serial === preloadSerial) {
+        preloadedSceneId = null;
+        preloadPromise = null;
+      }
+      console.warn('Preload failed:', err);
+      return false;
+    });
+  return preloadPromise;
+}
+
+async function activateScene(scene, transition) {
+  const incoming = standbyVideo;
+  const outgoing = video;
+
+  seekForScene(incoming, scene);
+  incoming.playbackRate = window.vrRateFor(
+    Math.max(displaySpeed, window.VR_REFERENCE_SPEED),
+    scene.baseSpeed
+  );
+  if (displaySpeed >= STOP_SPEED) requestPlay(incoming);
+
+  if (transition && sceneFade) {
+    sceneFade.classList.add('visible');
+    await sleep(120);
+  }
+
+  currentScene = scene;
+  sceneName.textContent = scene.title;
+  incoming.classList.add('active');
+  outgoing.classList.remove('active');
+  video = incoming;
+  standbyVideo = outgoing;
+  window.dispatchEvent(new CustomEvent('vr-active-video-changed', { detail: { video } }));
+
+  await nextFrame();
+  if (sceneFade) sceneFade.classList.remove('visible');
+
+  window.setTimeout(() => {
+    if (standbyVideo !== outgoing) return;
+    outgoing.pause();
+    outgoing.dataset.playPending = '';
+    outgoing.dataset.segmentEnded = '';
+  }, 500);
+
+  pendingSceneId = null;
+  preloadedSceneId = null;
+  preloadPromise = null;
+  failedScenes.delete(scene.id);
+  if ((connected || demoMode) && reconnectNote.textContent.includes('景色')) {
+    reconnectNote.hidden = true;
+  }
+
+  syncRemotePlayback();
+  window.setTimeout(() => { void preloadNextScene(); }, 700);
+}
+
+async function applyScene(sceneId, transition = false) {
   const scene = window.vrSceneById(sceneId);
   if (currentScene?.id === scene.id) {
     if (pendingSceneId && pendingSceneId !== scene.id) {
-      clearTimeout(sceneTransitionTimer);
+      sceneLoadToken += 1;
       pendingSceneId = null;
-      if (sceneFade) sceneFade.classList.remove("visible");
+      if (sceneFade) sceneFade.classList.remove('visible');
     }
     return;
   }
   if (pendingSceneId === scene.id) return;
-  if (transition && currentScene && sceneFade) {
-    pendingSceneId = scene.id;
-    sceneFade.classList.add("visible");
-    clearTimeout(sceneTransitionTimer);
-    sceneTransitionTimer = setTimeout(() => {
-      applyScene(scene.id);
-      requestAnimationFrame(() => sceneFade.classList.remove("visible"));
-    }, 260);
-    return;
+
+  const token = ++sceneLoadToken;
+  pendingSceneId = scene.id;
+  const initialLoad = !currentScene;
+  const target = initialLoad ? video : standbyVideo;
+  const hasMatchingPreload = !initialLoad && preloadedSceneId === scene.id && preloadPromise;
+
+  const loadingNotice = window.setTimeout(() => {
+    if (token !== sceneLoadToken) return;
+    reconnectNote.hidden = false;
+    reconnectNote.textContent = '次の景色を準備しています…';
+  }, 700);
+
+  try {
+    let ready = false;
+    if (hasMatchingPreload) ready = await preloadPromise;
+    if (!ready) {
+      ++preloadSerial;
+      preloadedSceneId = null;
+      preloadPromise = null;
+      await loadSceneInto(target, scene);
+    }
+    if (token !== sceneLoadToken || pendingSceneId !== scene.id) return;
+
+    if (initialLoad) {
+      currentScene = scene;
+      sceneName.textContent = scene.title;
+      seekForScene(video, scene);
+      video.classList.add('active');
+      video.dataset.segmentEnded = '';
+      if (displaySpeed >= STOP_SPEED) requestPlay(video);
+      pendingSceneId = null;
+      window.setTimeout(() => { void preloadNextScene(); }, 700);
+    } else {
+      await activateScene(scene, transition);
+    }
+  } catch (err) {
+    if (token !== sceneLoadToken) return;
+    console.warn(err);
+    pendingSceneId = null;
+    handleSceneFailure(scene.id);
+  } finally {
+    window.clearTimeout(loadingNotice);
   }
-  applyScene(scene.id);
-  if (sceneFade) sceneFade.classList.remove("visible");
+}
+
+function setScene(sceneId, transition = false) {
+  void applyScene(sceneId, transition);
 }
 
 function cueSceneFade() {
@@ -115,81 +288,81 @@ function cueSceneFade() {
     ? Math.min(currentScene.endSec, video.duration)
     : video.duration;
   const remaining = endAt - video.currentTime;
+
+  if (remaining > 0 && remaining < 10) void preloadNextScene();
+
   if (remaining <= 0.05 && displaySpeed >= STOP_SPEED) {
-    video.dataset.segmentEnded = "true";
+    video.dataset.segmentEnded = 'true';
     if (!video.paused) video.pause();
-    sceneFade.classList.add("visible");
+    sceneFade.classList.add('visible');
     if (!connected || usingFallback) advanceDisplayRoute();
     return;
   }
   if (remaining > 0 && remaining < 0.75 && displaySpeed >= STOP_SPEED) {
-    sceneFade.classList.add("visible");
+    sceneFade.classList.add('visible');
   }
 }
-setScene(window.VR_SCENES[0].id);
-
-video.addEventListener("timeupdate", cueSceneFade);
 
 function advanceDisplayRoute() {
   if (!currentScene || pendingSceneId) return;
   setScene(window.vrNextSceneId(currentScene.id), true);
 }
 
-// スマホ接続中はスマホ側が区間を進め、単独表示・代替再生だけ表示側で進める。
-video.addEventListener("ended", () => {
-  if (!connected || usingFallback) advanceDisplayRoute();
-});
-
-function handleSceneFailure() {
-  if (!currentScene || handledFailureToken === sceneLoadToken) return;
+function handleSceneFailure(failedSceneId = currentScene?.id) {
+  if (!failedSceneId || handledFailureToken === sceneLoadToken) return;
   handledFailureToken = sceneLoadToken;
   usingFallback = connected;
-  clearTimeout(sceneLoadTimer);
-  failedScenes.set(currentScene.id, Date.now());
+  failedScenes.set(failedSceneId, Date.now());
+
   const now = Date.now();
-  let candidateId = currentScene.id;
+  let candidateId = failedSceneId;
   for (let i = 0; i < window.VR_SCENES.length; i++) {
     candidateId = window.vrNextSceneId(candidateId);
     if (now - (failedScenes.get(candidateId) || 0) > 60000) {
       reconnectNote.hidden = false;
-      reconnectNote.textContent = "別の景色へ切り替えています…";
+      reconnectNote.textContent = '別の景色へ切り替えています…';
       setScene(candidateId, true);
       return;
     }
   }
+
   targetSpeed = 0;
   reconnectNote.hidden = false;
-  reconnectNote.textContent = "景観動画を読み込めません。通信を確認してページを再読み込みしてください。";
+  reconnectNote.textContent = '景観動画を読み込めません。通信を確認してページを再読み込みしてください。';
 }
-
-video.addEventListener("error", handleSceneFailure);
-video.addEventListener("canplay", () => {
-  clearTimeout(sceneLoadTimer);
-  failedScenes.delete(currentScene?.id);
-  if ((connected || demoMode) && reconnectNote.textContent.includes("景色")) reconnectNote.hidden = true;
-});
 
 function syncRemotePlayback() {
   if (!connected || !currentScene || currentScene.id !== desiredRemoteSceneId) return;
   if (video.readyState < HTMLMediaElement.HAVE_METADATA || !Number.isFinite(desiredRemoteSceneTime)) return;
-  const endAt = Number.isFinite(currentScene.endSec)
-    ? Math.min(currentScene.endSec, video.duration || currentScene.endSec)
-    : (video.duration || desiredRemoteSceneTime);
-  const safeTime = Math.min(desiredRemoteSceneTime, Math.max(currentScene.startSec || 0, endAt - 0.2));
-  if (Math.abs(video.currentTime - safeTime) > 1.5) video.currentTime = safeTime;
+  seekForScene(video, currentScene);
 }
-video.addEventListener("loadedmetadata", syncRemotePlayback);
 
-// 単独表示(試運転など)では、遅い導入をスキップして startSec から始める。
-// スマホ接続中は syncRemotePlayback がスマホ側の再生位置に合わせる。
-video.addEventListener("loadedmetadata", () => {
-  const startAt = currentScene?.startSec || 0;
-  const remoteControls = connected && currentScene?.id === desiredRemoteSceneId;
-  if (!remoteControls && startAt > 0 && video.currentTime < startAt && Number.isFinite(video.duration)) {
-    const endAt = Number.isFinite(currentScene.endSec) ? Math.min(currentScene.endSec, video.duration) : video.duration;
-    video.currentTime = Math.min(startAt, Math.max(startAt, endAt - 0.25));
-  }
-});
+for (const element of videos) {
+  element.addEventListener('timeupdate', (event) => {
+    if (event.currentTarget === video) cueSceneFade();
+  });
+  element.addEventListener('ended', (event) => {
+    if (event.currentTarget === video && (!connected || usingFallback)) advanceDisplayRoute();
+  });
+  element.addEventListener('error', (event) => {
+    if (event.currentTarget === video) handleSceneFailure(currentScene?.id);
+  });
+  element.addEventListener('canplay', (event) => {
+    if (event.currentTarget !== video) return;
+    failedScenes.delete(currentScene?.id);
+    if ((connected || demoMode) && reconnectNote.textContent.includes('景色')) {
+      reconnectNote.hidden = true;
+    }
+    void preloadNextScene();
+  });
+  element.addEventListener('loadedmetadata', (event) => {
+    if (event.currentTarget !== video || !currentScene) return;
+    seekForScene(video, currentScene);
+    syncRemotePlayback();
+  });
+}
+
+setScene(window.VR_SCENES[0].id);
 
 // ================= ペア接続(受信側) =================
 codeBox.textContent = "····";
@@ -359,6 +532,11 @@ document.addEventListener("keydown", (event) => {
 // ================= WebXR(VRで見る) =================
 let THREE = null;
 let renderer, xrScene, xrCamera, screenMesh, videoTexture;
+window.addEventListener('vr-active-video-changed', (event) => {
+  if (!videoTexture || !event.detail?.video) return;
+  videoTexture.image = event.detail.video;
+  videoTexture.needsUpdate = true;
+});
 
 async function initXRIfSupported() {
   if (!navigator.xr) return;
