@@ -2,33 +2,28 @@
 
 // スマホ側(app.js)と PC/Quest 表示側(display.js)で共有する定義。
 //
-// 2026-07-11 再監修: 数値上の「動き量」だけでなく、人が見たときの目線の高さ、
-// 路面の占有率、前方への注視、16km/hでの体感速度を優先して構成した。
-//  - 低いハンドル目線の countryside / forest は再採用しない
-//  - 横向き・空撮・固定カメラは使わず、進行方向が中央にある区間だけを使う
-//  - 長い良質素材は startSec / endSec で前向き区間に分け、景色の変化を作る
-//  - 静かな街並みは明確に減速し、朝焼けは遅い導入を飛ばして少し速めにする
+// 2026-07-11 全面刷新: 旧素材の速度補正をやめ、実際の自転車から撮影された
+// ひと続きの前方視点映像だけで構成した。全区間を開始・中盤・終了まで目視し、
+// 目線が下がる、横を眺め続ける、空撮、自動車らしい速度の素材を除外している。
 //
 // baseSpeed は、その映像が等速(×1.0)に見える想定速度 km/h。
 // startSec / endSec は、素材の中で実際に使う前向き区間。
 window.VR_REFERENCE_SPEED = 18;
 window.VR_SCENES = [
-  { id: "town", file: "videos/town.mp4", title: "🏘 静かな街並み",
-    durationSec: 29, baseSpeed: 24, perspective: "forward-rider-eye", viewY: "50%", credit: "https://www.pexels.com/video/37681296/" },
-  { id: "openroad-north", file: "videos/openroad.mp4", title: "🚲 郊外のまっすぐな道",
-    startSec: 0, endSec: 26, durationSec: 26, baseSpeed: 20, perspective: "forward-rider-eye", viewY: "50%", credit: "https://www.pexels.com/video/4533593/" },
-  { id: "openroad-south", file: "videos/openroad.mp4", title: "🚲 公園沿いの道",
-    startSec: 26, endSec: 53, durationSec: 27, baseSpeed: 20, perspective: "forward-rider-eye", viewY: "50%", credit: "https://www.pexels.com/video/4533593/", chip: false },
-  { id: "tree-road", file: "videos/tree-road.mp4", title: "🌳 並木のトンネル",
-    durationSec: 6, baseSpeed: 22, perspective: "forward-rider-eye", viewY: "50%", credit: "https://mixkit.co/free-stock-video/traveling-on-an-empty-road-covered-in-trees-4852/" },
-  { id: "coast-hills", file: "videos/coast.mp4", title: "🌊 海辺の丘道",
-    startSec: 0, endSec: 13, durationSec: 13, baseSpeed: 20, perspective: "forward-rider-eye", viewY: "48%", credit: "https://mixkit.co/free-stock-video/roading-through-a-small-coastal-town-4165/" },
-  { id: "coast-town", file: "videos/coast.mp4", title: "🌊 海辺の町なか",
-    startSec: 13, endSec: 26, durationSec: 13, baseSpeed: 20, perspective: "forward-rider-eye", viewY: "48%", credit: "https://mixkit.co/free-stock-video/roading-through-a-small-coastal-town-4165/", chip: false },
-  { id: "mountain-highway", file: "videos/mountain-highway.mp4", title: "⛰ 山あいの道",
-    durationSec: 22, baseSpeed: 18, perspective: "forward-rider-eye", viewY: "50%", credit: "https://mixkit.co/free-stock-video/highway-in-the-middle-of-a-mountain-range-4633/" },
-  { id: "dawn-road", file: "videos/dawn-road.mp4", title: "🌅 朝焼けの帰り道",
-    startSec: 12, endSec: 23, durationSec: 11, baseSpeed: 13, perspective: "forward-rider-eye", viewY: "50%", credit: "https://mixkit.co/free-stock-video/gliding-along-a-quiet-asphalt-road-at-dawn-the-soft-52452/" },
+  { id: "rice-lane-a", file: "videos/rice-lane-a.mp4", title: "🌾 田園へ向かう道",
+    durationSec: 35, baseSpeed: 16, perspective: "forward-rider-eye", sourceSet: "nagakute-ride-2026", viewY: "50%", credit: "https://commons.wikimedia.org/wiki/File:Japan_Cycling_Tour_-_Bike_Ride_in_Japanese_Countryside_-_Nagoya,_Japan_(4K).webm" },
+  { id: "rice-lane-b", file: "videos/rice-lane-b.mp4", title: "🌾 水田の細道",
+    durationSec: 35, baseSpeed: 16, perspective: "forward-rider-eye", sourceSet: "nagakute-ride-2026", viewY: "50%", credit: "https://commons.wikimedia.org/wiki/File:Japan_Cycling_Tour_-_Bike_Ride_in_Japanese_Countryside_-_Nagoya,_Japan_(4K).webm" },
+  { id: "greenway", file: "videos/greenway.mp4", title: "🌳 田園の並木道",
+    durationSec: 40, baseSpeed: 16, perspective: "forward-rider-eye", sourceSet: "nagakute-ride-2026", viewY: "50%", credit: "https://commons.wikimedia.org/wiki/File:Japan_Cycling_Tour_-_Bike_Ride_in_Japanese_Countryside_-_Nagoya,_Japan_(4K).webm" },
+  { id: "country-homes", file: "videos/country-homes.mp4", title: "🏡 緑のある集落",
+    durationSec: 40, baseSpeed: 16, perspective: "forward-rider-eye", sourceSet: "nagakute-ride-2026", viewY: "50%", credit: "https://commons.wikimedia.org/wiki/File:Japan_Cycling_Tour_-_Bike_Ride_in_Japanese_Countryside_-_Nagoya,_Japan_(4K).webm" },
+  { id: "garden-lane", file: "videos/garden-lane.mp4", title: "🌿 庭先を抜ける道",
+    durationSec: 40, baseSpeed: 16, perspective: "forward-rider-eye", sourceSet: "nagakute-ride-2026", viewY: "50%", credit: "https://commons.wikimedia.org/wiki/File:Japan_Cycling_Tour_-_Bike_Ride_in_Japanese_Countryside_-_Nagoya,_Japan_(4K).webm" },
+  { id: "residential-green", file: "videos/residential-green.mp4", title: "🍃 高台の住宅路",
+    durationSec: 40, baseSpeed: 16, perspective: "forward-rider-eye", sourceSet: "nagakute-ride-2026", viewY: "50%", credit: "https://commons.wikimedia.org/wiki/File:Japan_Cycling_Tour_-_Bike_Ride_in_Japanese_Countryside_-_Nagoya,_Japan_(4K).webm" },
+  { id: "red-cycle-road", file: "videos/red-cycle-road.mp4", title: "🚲 赤い自転車道",
+    durationSec: 40, baseSpeed: 16, perspective: "forward-rider-eye", sourceSet: "nagakute-ride-2026", viewY: "50%", credit: "https://commons.wikimedia.org/wiki/File:Japan_Cycling_Tour_-_Bike_Ride_in_Japanese_Countryside_-_Nagoya,_Japan_(4K).webm" },
 ];
 
 window.VR_TUNING = {

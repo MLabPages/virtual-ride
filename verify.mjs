@@ -14,10 +14,18 @@ vm.runInNewContext(scenesSource, context, { filename: "scenes.js" });
 const vr = context.window;
 
 assert.ok(Array.isArray(vr.VR_SCENES), "VR_SCENES must be an array");
-assert.ok(vr.VR_SCENES.length >= 8, "route should contain at least 8 scenes");
+assert.ok(vr.VR_SCENES.length >= 7, "route should contain at least 7 curated scenes");
 assert.equal(new Set(vr.VR_SCENES.map((scene) => scene.id)).size, vr.VR_SCENES.length, "scene ids must be unique");
-const blockedSceneIds = new Set(["countryside", "forest", "seashore-hotel-zone", "green-hill-road"]);
-const blockedFiles = new Set(["videos/countryside.mp4", "videos/forest.mp4"]);
+const blockedSceneIds = new Set([
+  "town", "countryside", "forest", "openroad-north", "openroad-south", "tree-road",
+  "coast-hills", "coast-town", "mountain-highway", "dawn-road", "seashore-hotel-zone",
+  "green-hill-road",
+]);
+const blockedFiles = new Set([
+  "videos/town.mp4", "videos/countryside.mp4", "videos/forest.mp4", "videos/openroad.mp4",
+  "videos/tree-road.mp4", "videos/coast.mp4", "videos/mountain-highway.mp4",
+  "videos/dawn-road.mp4", "videos/europe.mp4",
+]);
 
 for (const scene of vr.VR_SCENES) {
   assert.match(scene.id, /^[a-z0-9-]+$/, `invalid scene id: ${scene.id}`);
@@ -25,6 +33,7 @@ for (const scene of vr.VR_SCENES) {
   assert.ok(Number.isFinite(scene.durationSec) && scene.durationSec > 0, `invalid duration: ${scene.id}`);
   assert.ok(Number.isFinite(scene.baseSpeed) && scene.baseSpeed > 0, `invalid base speed: ${scene.id}`);
   assert.equal(scene.perspective, "forward-rider-eye", `scene is not approved rider-eye perspective: ${scene.id}`);
+  assert.equal(scene.sourceSet, "nagakute-ride-2026", `scene is not from the fully refreshed route: ${scene.id}`);
   assert.ok(!blockedSceneIds.has(scene.id), `previously rejected scene was restored: ${scene.id}`);
   assert.ok(!blockedFiles.has(scene.file), `low rider-eye video was restored: ${scene.file}`);
   // 走行の体感が自転車から離れすぎないよう、基準速度は自転車レンジに収める
@@ -39,7 +48,7 @@ for (const scene of vr.VR_SCENES) {
       `durationSec must match startSec/endSec: ${scene.id}`
     );
   }
-  assert.match(scene.credit, /^https:\/\/(mixkit\.co\/free-stock-video|www\.pexels\.com\/video)\//, `invalid credit: ${scene.id}`);
+  assert.match(scene.credit, /^https:\/\/commons\.wikimedia\.org\/wiki\/File:/, `invalid credit: ${scene.id}`);
   // 配信の安定のため、映像はすべてローカル同梱とする(remote URL は不可)
   assert.ok(!/^https:\/\//.test(scene.file), `scene must use a bundled local file: ${scene.id}`);
   assert.ok(existsSync(new URL(`./${scene.file}`, import.meta.url)), `missing local video: ${scene.file}`);
@@ -80,9 +89,8 @@ assert.ok(displaySource.includes("syncRemotePlayback"), "display must correct re
 assert.ok(appSource.includes("dataset.segmentEnded"), "controller must stop at curated segment boundaries");
 assert.ok(displaySource.includes("dataset.segmentEnded"), "display must stop at curated segment boundaries");
 
-const town = vr.vrSceneById("town");
-const dawn = vr.vrSceneById("dawn-road");
-assert.ok(vr.vrRateFor(16, town.baseSpeed) <= 0.7, "town must remain slowed at 16km/h");
-assert.ok(vr.vrRateFor(16, dawn.baseSpeed) >= 1.2, "dawn introduction must remain brisk at 16km/h");
+for (const scene of vr.VR_SCENES) {
+  assert.equal(vr.vrRateFor(16, scene.baseSpeed), 1, `16km/h must preserve real cycling speed: ${scene.id}`);
+}
 
 console.log(`Verified ${vr.VR_SCENES.length} scenes / ${routeMinutes.toFixed(1)} min / ${vr.vrRouteDistanceKm().toFixed(2)} km`);

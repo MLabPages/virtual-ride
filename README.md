@@ -30,9 +30,10 @@
 
 ## 映像のライセンス
 
-映像はすべて [Pexels License](https://www.pexels.com/license/) と
-[Mixkit Stock Video Free License](https://mixkit.co/license/) の
-無料ライセンス素材(商用利用可)を使用しています。
+現在の走行映像は、Wikimedia Commonsで公開されている
+[4K Japan Walk「Japan Cycling Tour」](https://commons.wikimedia.org/wiki/File:Japan_Cycling_Tour_-_Bike_Ride_in_Japanese_Countryside_-_Nagoya,_Japan_(4K).webm)
+(CC BY 3.0)から、自転車の前方目線が安定した区間を編集して使用しています。
+撮影・原著作者: 4K Japan Walk。
 配信を安定させるため、映像はすべてこのリポジトリに同梱しています。
 各映像の出典は、アプリ内の「設定 → 映像クレジット一覧」で確認できます。
 
