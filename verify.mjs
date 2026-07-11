@@ -14,7 +14,7 @@ vm.runInNewContext(scenesSource, context, { filename: "scenes.js" });
 const vr = context.window;
 
 assert.ok(Array.isArray(vr.VR_SCENES), "VR_SCENES must be an array");
-assert.ok(vr.VR_SCENES.length >= 10, "route should contain at least 10 scenes");
+assert.ok(vr.VR_SCENES.length >= 8, "route should contain at least 8 scenes");
 assert.equal(new Set(vr.VR_SCENES.map((scene) => scene.id)).size, vr.VR_SCENES.length, "scene ids must be unique");
 
 for (const scene of vr.VR_SCENES) {
@@ -22,17 +22,26 @@ for (const scene of vr.VR_SCENES) {
   assert.ok(scene.title && typeof scene.title === "string", `missing title: ${scene.id}`);
   assert.ok(Number.isFinite(scene.durationSec) && scene.durationSec > 0, `invalid duration: ${scene.id}`);
   assert.ok(Number.isFinite(scene.baseSpeed) && scene.baseSpeed > 0, `invalid base speed: ${scene.id}`);
-  assert.match(scene.credit, /^https:\/\/mixkit\.co\/free-stock-video\//, `invalid credit: ${scene.id}`);
-  if (!/^https:\/\//.test(scene.file)) {
-    assert.ok(existsSync(new URL(`./${scene.file}`, import.meta.url)), `missing local video: ${scene.file}`);
+  // 走行の体感が自転車から離れすぎないよう、基準速度は自転車レンジに収める
+  assert.ok(scene.baseSpeed >= 10 && scene.baseSpeed <= 30, `base speed out of cycling range: ${scene.id}`);
+  if (scene.startSec != null) {
+    assert.ok(Number.isFinite(scene.startSec) && scene.startSec >= 0, `invalid startSec: ${scene.id}`);
   }
+  assert.match(scene.credit, /^https:\/\/(mixkit\.co\/free-stock-video|www\.pexels\.com\/video)\//, `invalid credit: ${scene.id}`);
+  // 配信の安定のため、映像はすべてローカル同梱とする(remote URL は不可)
+  assert.ok(!/^https:\/\//.test(scene.file), `scene must use a bundled local file: ${scene.id}`);
+  assert.ok(existsSync(new URL(`./${scene.file}`, import.meta.url)), `missing local video: ${scene.file}`);
 }
 
 const routeMinutes = vr.vrRouteEstimateSec() / 60;
-assert.ok(routeMinutes >= 8 && routeMinutes <= 15, `unexpected route length: ${routeMinutes.toFixed(1)} min`);
+assert.ok(routeMinutes >= 2.5 && routeMinutes <= 15, `unexpected route length: ${routeMinutes.toFixed(1)} min`);
 assert.equal(vr.vrNextSceneId(vr.VR_SCENES.at(-1).id), vr.VR_SCENES[0].id, "route must loop to the first scene");
 assert.equal(vr.vrRouteProgress(vr.VR_SCENES[0].id, 0), 0, "route should start at 0%");
-assert.ok(vr.vrRouteProgress(vr.VR_SCENES.at(-1).id, vr.VR_SCENES.at(-1).durationSec) > 0.99, "route should finish near 100%");
+const lastScene = vr.VR_SCENES.at(-1);
+assert.ok(
+  vr.vrRouteProgress(lastScene.id, (lastScene.startSec || 0) + lastScene.durationSec) > 0.99,
+  "route should finish near 100%"
+);
 
 function assertReferencedIdsExist(source, html, label) {
   const ids = [...source.matchAll(/\$\("([A-Za-z][A-Za-z0-9_-]*)"\)/g)].map((match) => match[1]);

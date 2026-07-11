@@ -201,15 +201,20 @@ function applyScene(sceneId, persist = true) {
       handleSceneFailure("timeout");
     }
   }, 12000);
-  if (resumeSceneId === scene.id && pendingResumeTime > 0) {
-    const resumeAtSavedTime = () => {
-      if (currentScene?.id === scene.id && Number.isFinite(sceneVideo.duration)) {
-        sceneVideo.currentTime = Math.min(pendingResumeTime, Math.max(0, sceneVideo.duration - 0.25));
-      }
+  const startAt = scene.startSec || 0;
+  const resuming = resumeSceneId === scene.id && pendingResumeTime > 0;
+  const seekToStart = () => {
+    if (currentScene?.id !== scene.id || !Number.isFinite(sceneVideo.duration)) return;
+    if (resuming) {
+      sceneVideo.currentTime = Math.min(Math.max(pendingResumeTime, startAt), Math.max(0, sceneVideo.duration - 0.25));
       pendingResumeTime = 0;
       resumeSceneId = null;
-    };
-    sceneVideo.addEventListener("loadedmetadata", resumeAtSavedTime, { once: true });
+    } else if (startAt > 0) {
+      sceneVideo.currentTime = Math.min(startAt, Math.max(0, sceneVideo.duration - 0.25));
+    }
+  };
+  if (resuming || startAt > 0) {
+    sceneVideo.addEventListener("loadedmetadata", seekToStart, { once: true });
   }
   sceneVideo.dataset.playPending = "";
   if (displaySpeed >= STOP_SPEED) {
@@ -820,7 +825,7 @@ function openSessionSummary() {
   $("summaryMax").textContent = maxSpeed.toFixed(1);
   $("summaryRoute").textContent = routeLaps
     ? `ルート${routeLaps}周完走・現在の周を${Math.round(progress * 100)}%走行`
-    : `海から夕暮れへのルートを${Math.round(progress * 100)}%走行`;
+    : `街から朝焼けへのルートを${Math.round(progress * 100)}%走行`;
   sessionDialog.showModal();
 }
 $("resetBtn").addEventListener("click", openSessionSummary);

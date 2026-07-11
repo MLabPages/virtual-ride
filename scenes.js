@@ -1,46 +1,35 @@
 "use strict";
 
 // スマホ側(app.js)と PC/Quest 表示側(display.js)で共有する定義。
-// 実験で使う「漕いで前に進む感覚」を優先し、横移動・空撮・徒歩・水辺だけの映像は除外。
+//
+// 2026-07-11 全面見直し: 全15本を1本ずつ検査し、以下の基準で8本に絞った。
+//  - 走行視点(前方を向いたハンドル/車載目線)であること。空撮・固定カメラ・
+//    横から海を眺めるだけの映像(旧 seashore-hotel-zone 等)は除外
+//  - 「動きの量」(縮小グレー画像の隣接フレーム平均差分)を全編で計測し、
+//    等速再生時の体感速度が自転車視点(動き量15前後)に揃うよう baseSpeed を決定。
+//    遠景ばかりで動き量が極端に低い空きハイウェイ(1〜3)は補正不能なので除外
+//  - 配信が不安定な remote URL(旧 evening-road は接続不能)をやめ、全て同梱
+//
 // baseSpeed は、その映像が等速(×1.0)に見える想定速度 km/h。
-// 車載に近い素材は自転車速度で自然に見えるよう高めに置き、18km/h前後で約10分半のルートにしている。
-const MIXKIT = "https://assets.mixkit.co";
-
+// startSec を指定すると、その秒数から再生を始める(遅い導入のスキップ用)。
 window.VR_REFERENCE_SPEED = 18;
 window.VR_SCENES = [
-  { id: "coast", file: "videos/coast.mp4", title: "🌊 海沿いの道路",
-    durationSec: 27, baseSpeed: 24, viewY: "48%", credit: "https://mixkit.co/free-stock-video/roading-through-a-small-coastal-town-4165/" },
-  { id: "beach-town-streets", file: `${MIXKIT}/videos/2592/2592-720.mp4`, title: "🌊 海辺の町道",
-    durationSec: 11, baseSpeed: 22, viewY: "50%", credit: "https://mixkit.co/free-stock-video/streets-of-a-beach-town-2592/", chip: false },
-  { id: "seashore-hotel-zone", file: `${MIXKIT}/videos/4077/4077-720.mp4`, title: "🌊 海岸沿いのホテル街",
-    durationSec: 29, baseSpeed: 28, viewY: "50%", credit: "https://mixkit.co/free-stock-video/hotel-zone-near-the-seashore-4077/", chip: false },
-
-  { id: "mountain-open-road", file: `${MIXKIT}/active_storage/video_items/100341/1723061354/100341-video-720.mp4`, title: "⛰ 山道へ",
-    durationSec: 21, baseSpeed: 38, viewY: "48%", credit: "https://mixkit.co/free-stock-video/scenic-highway-with-mountains-and-open-sky-100341/" },
-  { id: "mountain-highway", file: `${MIXKIT}/videos/4633/4633-720.mp4`, title: "⛰ 山あいの道",
-    durationSec: 22, baseSpeed: 42, viewY: "50%", credit: "https://mixkit.co/free-stock-video/highway-in-the-middle-of-a-mountain-range-4633/", chip: false },
-  { id: "green-hill-road", file: `${MIXKIT}/videos/41537/41537-720.mp4`, title: "⛰ 丘のカーブ道",
-    durationSec: 29, baseSpeed: 38, viewY: "50%", credit: "https://mixkit.co/free-stock-video/curvy-road-on-a-tree-covered-hill-41537/", chip: false },
-  { id: "curved-mountain-road", file: `${MIXKIT}/videos/41576/41576-720.mp4`, title: "⛰ 山の連続カーブ",
-    durationSec: 50, baseSpeed: 42, viewY: "50%", credit: "https://mixkit.co/free-stock-video/going-down-a-curved-highway-through-a-mountain-range-41576/", chip: false },
-
-  { id: "tree-road", file: `${MIXKIT}/videos/4852/4852-720.mp4`, title: "🌲 木々に包まれた道路",
-    durationSec: 7, baseSpeed: 28, viewY: "50%", credit: "https://mixkit.co/free-stock-video/traveling-on-an-empty-road-covered-in-trees-4852/" },
-  { id: "dawn-road", file: `${MIXKIT}/videos/52452/52452-720.mp4`, title: "🌲 夜明けの一本道",
-    durationSec: 24, baseSpeed: 28, viewY: "50%", credit: "https://mixkit.co/free-stock-video/gliding-along-a-quiet-asphalt-road-at-dawn-the-soft-52452/", chip: false },
-  { id: "black-road-sun", file: `${MIXKIT}/videos/52454/52454-720.mp4`, title: "🌲 陽の差す道",
-    durationSec: 31, baseSpeed: 30, viewY: "50%", credit: "https://mixkit.co/free-stock-video/traveling-along-from-the-driver-point-of-view-over-an-52454/", chip: false },
-
-  { id: "evening-road", file: `${MIXKIT}/videos/41575/41575-720.mp4`, title: "🌄 夕方の道",
-    durationSec: 20, baseSpeed: 28, viewY: "50%", credit: "https://mixkit.co/free-stock-video/traveling-on-a-nature-road-at-dusk-41575/" },
-  { id: "driver-asphalt", file: `${MIXKIT}/videos/52453/52453-720.mp4`, title: "🌄 アスファルトの直線路",
-    durationSec: 18, baseSpeed: 34, viewY: "50%", credit: "https://mixkit.co/free-stock-video/traveling-along-from-the-driver-point-of-view-on-an-52453/", chip: false },
-  { id: "sunny-highway", file: `${MIXKIT}/videos/42368/42368-720.mp4`, title: "🌄 晴れた直線路",
-    durationSec: 12, baseSpeed: 38, viewY: "50%", credit: "https://mixkit.co/free-stock-video/traveling-on-the-highway-on-a-sunny-day-42368/", chip: false },
-  { id: "fast-open-road", file: `${MIXKIT}/videos/44651/44651-720.mp4`, title: "🌄 ひらけた道",
-    durationSec: 13, baseSpeed: 38, viewY: "50%", credit: "https://mixkit.co/free-stock-video/traveling-fast-by-car-on-a-road-in-point-of-44651/", chip: false },
-  { id: "straight-highway", file: `${MIXKIT}/videos/44655/44655-720.mp4`, title: "🌄 まっすぐ続く道",
-    durationSec: 20, baseSpeed: 38, viewY: "50%", credit: "https://mixkit.co/free-stock-video/speedy-point-of-view-tour-of-a-highway-44655/", chip: false },
+  { id: "town", file: "videos/town.mp4", title: "🏘 静かな街並み",
+    durationSec: 29, baseSpeed: 15, viewY: "50%", credit: "https://www.pexels.com/video/37681296/" },
+  { id: "countryside", file: "videos/countryside.mp4", title: "🌾 黄金の田舎道",
+    durationSec: 35, baseSpeed: 18, viewY: "50%", credit: "https://www.pexels.com/video/4986006/" },
+  { id: "tree-road", file: "videos/tree-road.mp4", title: "🌳 並木のトンネル",
+    durationSec: 6, baseSpeed: 17, viewY: "50%", credit: "https://mixkit.co/free-stock-video/traveling-on-an-empty-road-covered-in-trees-4852/" },
+  { id: "forest", file: "videos/forest.mp4", title: "🌲 森のトレイル",
+    durationSec: 19, baseSpeed: 14, viewY: "50%", credit: "https://www.pexels.com/video/5456060/" },
+  { id: "openroad", file: "videos/openroad.mp4", title: "🛣 ひらけた道",
+    durationSec: 53, baseSpeed: 18, viewY: "50%", credit: "https://www.pexels.com/video/4533593/" },
+  { id: "coast", file: "videos/coast.mp4", title: "🌊 海辺の町へ",
+    durationSec: 26, baseSpeed: 18, viewY: "48%", credit: "https://mixkit.co/free-stock-video/roading-through-a-small-coastal-town-4165/" },
+  { id: "mountain-highway", file: "videos/mountain-highway.mp4", title: "⛰ 山あいの道",
+    durationSec: 22, baseSpeed: 16, viewY: "50%", credit: "https://mixkit.co/free-stock-video/highway-in-the-middle-of-a-mountain-range-4633/" },
+  { id: "dawn-road", file: "videos/dawn-road.mp4", title: "🌅 朝焼けの帰り道",
+    durationSec: 15, startSec: 8, baseSpeed: 16, viewY: "50%", credit: "https://mixkit.co/free-stock-video/gliding-along-a-quiet-asphalt-road-at-dawn-the-soft-52452/" },
 ];
 
 window.VR_TUNING = {
@@ -87,6 +76,12 @@ window.vrRouteDistanceKm = function () {
   }, 0);
 };
 
+// 再生位置(動画の生の秒数)→ シーン内での経過秒。startSec より前は 0 とみなす。
+window.vrSceneElapsed = function (scene, currentTime = 0) {
+  const raw = Math.max(0, (Number(currentTime) || 0) - (scene.startSec || 0));
+  return Math.min(scene.durationSec || 0, raw);
+};
+
 window.vrRouteProgress = function (sceneId, currentTime = 0) {
   const list = window.VR_SCENES;
   const index = window.vrSceneIndex(sceneId);
@@ -94,10 +89,7 @@ window.vrRouteProgress = function (sceneId, currentTime = 0) {
     return sum + ((scene.durationSec || 0) * scene.baseSpeed) / 3600;
   }, 0);
   const scene = list[index];
-  const elapsed = Math.min(
-    scene.durationSec || 0,
-    Math.max(0, Number(currentTime) || 0)
-  );
+  const elapsed = window.vrSceneElapsed(scene, currentTime);
   const currentKm = (elapsed * scene.baseSpeed) / 3600;
   const totalKm = window.vrRouteDistanceKm();
   return totalKm ? Math.min(1, Math.max(0, (completedKm + currentKm) / totalKm)) : 0;
@@ -110,7 +102,7 @@ window.vrRouteRemainingSec = function (sceneId, currentTime = 0, speed = window.
     ? speed
     : window.VR_REFERENCE_SPEED;
   return list.slice(index).reduce((sum, scene, offset) => {
-    const elapsed = offset === 0 ? Math.max(0, Number(currentTime) || 0) : 0;
+    const elapsed = offset === 0 ? window.vrSceneElapsed(scene, currentTime) : 0;
     const remainingVideoSec = Math.max(0, (scene.durationSec || 0) - elapsed);
     return sum + remainingVideoSec / window.vrRateFor(safeSpeed, scene.baseSpeed);
   }, 0);

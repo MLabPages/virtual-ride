@@ -163,6 +163,16 @@ function syncRemotePlayback() {
 }
 video.addEventListener("loadedmetadata", syncRemotePlayback);
 
+// 単独表示(試運転など)では、遅い導入をスキップして startSec から始める。
+// スマホ接続中は syncRemotePlayback がスマホ側の再生位置に合わせる。
+video.addEventListener("loadedmetadata", () => {
+  const startAt = currentScene?.startSec || 0;
+  const remoteControls = connected && currentScene?.id === desiredRemoteSceneId;
+  if (!remoteControls && startAt > 0 && video.currentTime < startAt && Number.isFinite(video.duration)) {
+    video.currentTime = Math.min(startAt, Math.max(0, video.duration - 0.25));
+  }
+});
+
 // ================= ペア接続(受信側) =================
 codeBox.textContent = "····";
 let link = null;
