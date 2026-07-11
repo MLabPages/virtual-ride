@@ -205,18 +205,21 @@ function applyScene(sceneId, persist = true) {
   const resuming = resumeSceneId === scene.id && pendingResumeTime > 0;
   const seekToStart = () => {
     if (currentScene?.id !== scene.id || !Number.isFinite(sceneVideo.duration)) return;
+    const endAt = Number.isFinite(scene.endSec) ? Math.min(scene.endSec, sceneVideo.duration) : sceneVideo.duration;
+    const latestTime = Math.max(startAt, endAt - 0.25);
     if (resuming) {
-      sceneVideo.currentTime = Math.min(Math.max(pendingResumeTime, startAt), Math.max(0, sceneVideo.duration - 0.25));
+      sceneVideo.currentTime = Math.min(Math.max(pendingResumeTime, startAt), latestTime);
       pendingResumeTime = 0;
       resumeSceneId = null;
     } else if (startAt > 0) {
-      sceneVideo.currentTime = Math.min(startAt, Math.max(0, sceneVideo.duration - 0.25));
+      sceneVideo.currentTime = Math.min(startAt, latestTime);
     }
   };
   if (resuming || startAt > 0) {
     sceneVideo.addEventListener("loadedmetadata", seekToStart, { once: true });
   }
   sceneVideo.dataset.playPending = "";
+  sceneVideo.dataset.segmentEnded = "";
   if (displaySpeed >= STOP_SPEED) {
     sceneVideo.dataset.playPending = "true";
     sceneVideo.play()
@@ -255,15 +258,24 @@ function setScene(sceneId, persist = true, transition = false) {
 
 function cueSceneFade() {
   if (!sceneFade || !currentScene || !Number.isFinite(sceneVideo.duration)) return;
-  const remaining = sceneVideo.duration - sceneVideo.currentTime;
+  const endAt = Number.isFinite(currentScene.endSec)
+    ? Math.min(currentScene.endSec, sceneVideo.duration)
+    : sceneVideo.duration;
+  const remaining = endAt - sceneVideo.currentTime;
+  if (remaining <= 0.05 && displaySpeed >= STOP_SPEED) {
+    sceneVideo.dataset.segmentEnded = "true";
+    if (!sceneVideo.paused) sceneVideo.pause();
+    advanceRoute();
+    return;
+  }
   if (remaining > 0 && remaining < 0.75 && displaySpeed >= STOP_SPEED) {
     sceneFade.classList.add("visible");
   }
 }
 sceneVideo.addEventListener("timeupdate", cueSceneFade);
 
-// 映像が最後まで再生されたら、次の景色へ自動で進む(旅モード)
-sceneVideo.addEventListener("ended", () => {
+function advanceRoute() {
+  if (!currentScene || pendingSceneId) return;
   const nextId = window.vrNextSceneId(currentScene.id);
   if (nextId === SCENES[0].id) {
     routeLaps += 1;
@@ -271,7 +283,10 @@ sceneVideo.addEventListener("ended", () => {
   }
   setScene(nextId, false, true);
   saveSession(true);
-});
+}
+
+// 素材の採用区間、または映像そのものの終端で次の景色へ進む。
+sceneVideo.addEventListener("ended", advanceRoute);
 
 function handleSceneFailure() {
   if (!currentScene || handledFailureToken === sceneLoadToken) return;
@@ -715,7 +730,7 @@ function tick(now) {
       const rate = window.vrRateFor(displaySpeed, currentScene.baseSpeed);
       if (Math.abs(sceneVideo.playbackRate - rate) > 0.02) sceneVideo.playbackRate = rate;
       
-      if (sceneVideo.paused && !sceneVideo.dataset.playPending) {
+      if (sceneVideo.paused && !sceneVideo.dataset.playPending && !sceneVideo.dataset.segmentEnded) {
         sceneVideo.dataset.playPending = "true";
         sceneVideo.play()
           .then(() => { sceneVideo.dataset.playPending = ""; })
@@ -972,7 +987,7 @@ if (restoredSession && (movingSec > 0 || distanceM > 0)) {
 // ================= 自動再生ブロック解除 =================
 function setupUnlock() {
   const unlock = () => {
-    if (sceneVideo.paused) {
+    if (sceneVideo.paused && !sceneVideo.dataset.segmentEnded) {
       sceneVideo.play().then(() => {
         if (displaySpeed < STOP_SPEED) sceneVideo.pause();
       }).catch(() => {});

@@ -2,34 +2,33 @@
 
 // スマホ側(app.js)と PC/Quest 表示側(display.js)で共有する定義。
 //
-// 2026-07-11 全面見直し: 全15本を1本ずつ検査し、以下の基準で8本に絞った。
-//  - 走行視点(前方を向いたハンドル/車載目線)であること。空撮・固定カメラ・
-//    横から海を眺めるだけの映像(旧 seashore-hotel-zone 等)は除外
-//  - 「動きの量」(縮小グレー画像の隣接フレーム平均差分)を全編で計測し、
-//    等速再生時の体感速度が自転車視点(動き量15前後)に揃うよう baseSpeed を決定。
-//    遠景ばかりで動き量が極端に低い空きハイウェイ(1〜3)は補正不能なので除外
-//  - 配信が不安定な remote URL(旧 evening-road は接続不能)をやめ、全て同梱
+// 2026-07-11 再監修: 数値上の「動き量」だけでなく、人が見たときの目線の高さ、
+// 路面の占有率、前方への注視、16km/hでの体感速度を優先して構成した。
+//  - 低いハンドル目線の countryside / forest は再採用しない
+//  - 横向き・空撮・固定カメラは使わず、進行方向が中央にある区間だけを使う
+//  - 長い良質素材は startSec / endSec で前向き区間に分け、景色の変化を作る
+//  - 静かな街並みは明確に減速し、朝焼けは遅い導入を飛ばして少し速めにする
 //
 // baseSpeed は、その映像が等速(×1.0)に見える想定速度 km/h。
-// startSec を指定すると、その秒数から再生を始める(遅い導入のスキップ用)。
+// startSec / endSec は、素材の中で実際に使う前向き区間。
 window.VR_REFERENCE_SPEED = 18;
 window.VR_SCENES = [
   { id: "town", file: "videos/town.mp4", title: "🏘 静かな街並み",
-    durationSec: 29, baseSpeed: 15, viewY: "50%", credit: "https://www.pexels.com/video/37681296/" },
-  { id: "countryside", file: "videos/countryside.mp4", title: "🌾 黄金の田舎道",
-    durationSec: 35, baseSpeed: 18, viewY: "50%", credit: "https://www.pexels.com/video/4986006/" },
+    durationSec: 29, baseSpeed: 24, perspective: "forward-rider-eye", viewY: "50%", credit: "https://www.pexels.com/video/37681296/" },
+  { id: "openroad-north", file: "videos/openroad.mp4", title: "🚲 郊外のまっすぐな道",
+    startSec: 0, endSec: 26, durationSec: 26, baseSpeed: 20, perspective: "forward-rider-eye", viewY: "50%", credit: "https://www.pexels.com/video/4533593/" },
+  { id: "openroad-south", file: "videos/openroad.mp4", title: "🚲 公園沿いの道",
+    startSec: 26, endSec: 53, durationSec: 27, baseSpeed: 20, perspective: "forward-rider-eye", viewY: "50%", credit: "https://www.pexels.com/video/4533593/", chip: false },
   { id: "tree-road", file: "videos/tree-road.mp4", title: "🌳 並木のトンネル",
-    durationSec: 6, baseSpeed: 17, viewY: "50%", credit: "https://mixkit.co/free-stock-video/traveling-on-an-empty-road-covered-in-trees-4852/" },
-  { id: "forest", file: "videos/forest.mp4", title: "🌲 森のトレイル",
-    durationSec: 19, baseSpeed: 14, viewY: "50%", credit: "https://www.pexels.com/video/5456060/" },
-  { id: "openroad", file: "videos/openroad.mp4", title: "🛣 ひらけた道",
-    durationSec: 53, baseSpeed: 18, viewY: "50%", credit: "https://www.pexels.com/video/4533593/" },
-  { id: "coast", file: "videos/coast.mp4", title: "🌊 海辺の町へ",
-    durationSec: 26, baseSpeed: 18, viewY: "48%", credit: "https://mixkit.co/free-stock-video/roading-through-a-small-coastal-town-4165/" },
+    durationSec: 6, baseSpeed: 22, perspective: "forward-rider-eye", viewY: "50%", credit: "https://mixkit.co/free-stock-video/traveling-on-an-empty-road-covered-in-trees-4852/" },
+  { id: "coast-hills", file: "videos/coast.mp4", title: "🌊 海辺の丘道",
+    startSec: 0, endSec: 13, durationSec: 13, baseSpeed: 20, perspective: "forward-rider-eye", viewY: "48%", credit: "https://mixkit.co/free-stock-video/roading-through-a-small-coastal-town-4165/" },
+  { id: "coast-town", file: "videos/coast.mp4", title: "🌊 海辺の町なか",
+    startSec: 13, endSec: 26, durationSec: 13, baseSpeed: 20, perspective: "forward-rider-eye", viewY: "48%", credit: "https://mixkit.co/free-stock-video/roading-through-a-small-coastal-town-4165/", chip: false },
   { id: "mountain-highway", file: "videos/mountain-highway.mp4", title: "⛰ 山あいの道",
-    durationSec: 22, baseSpeed: 16, viewY: "50%", credit: "https://mixkit.co/free-stock-video/highway-in-the-middle-of-a-mountain-range-4633/" },
+    durationSec: 22, baseSpeed: 18, perspective: "forward-rider-eye", viewY: "50%", credit: "https://mixkit.co/free-stock-video/highway-in-the-middle-of-a-mountain-range-4633/" },
   { id: "dawn-road", file: "videos/dawn-road.mp4", title: "🌅 朝焼けの帰り道",
-    durationSec: 15, startSec: 8, baseSpeed: 16, viewY: "50%", credit: "https://mixkit.co/free-stock-video/gliding-along-a-quiet-asphalt-road-at-dawn-the-soft-52452/" },
+    startSec: 12, endSec: 23, durationSec: 11, baseSpeed: 13, perspective: "forward-rider-eye", viewY: "50%", credit: "https://mixkit.co/free-stock-video/gliding-along-a-quiet-asphalt-road-at-dawn-the-soft-52452/" },
 ];
 
 window.VR_TUNING = {

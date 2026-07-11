@@ -72,6 +72,7 @@ function applyScene(sceneId) {
     }
   }, 12000);
   video.dataset.playPending = "";
+  video.dataset.segmentEnded = "";
   if (displaySpeed >= STOP_SPEED) {
     video.dataset.playPending = "true";
     video.play()
@@ -110,7 +111,17 @@ function setScene(sceneId, transition = false) {
 
 function cueSceneFade() {
   if (!sceneFade || !currentScene || !Number.isFinite(video.duration)) return;
-  const remaining = video.duration - video.currentTime;
+  const endAt = Number.isFinite(currentScene.endSec)
+    ? Math.min(currentScene.endSec, video.duration)
+    : video.duration;
+  const remaining = endAt - video.currentTime;
+  if (remaining <= 0.05 && displaySpeed >= STOP_SPEED) {
+    video.dataset.segmentEnded = "true";
+    if (!video.paused) video.pause();
+    sceneFade.classList.add("visible");
+    if (!connected || usingFallback) advanceDisplayRoute();
+    return;
+  }
   if (remaining > 0 && remaining < 0.75 && displaySpeed >= STOP_SPEED) {
     sceneFade.classList.add("visible");
   }
@@ -119,11 +130,14 @@ setScene(window.VR_SCENES[0].id);
 
 video.addEventListener("timeupdate", cueSceneFade);
 
-// 映像が終わったら次の景色へ(旅モード)。
-// スマホと接続中は、進行の指揮はスマホに任せる(スマホが次の sceneId を送る)。
-// 単独表示のときだけ、この画面自身で次へ進む。
+function advanceDisplayRoute() {
+  if (!currentScene || pendingSceneId) return;
+  setScene(window.vrNextSceneId(currentScene.id), true);
+}
+
+// スマホ接続中はスマホ側が区間を進め、単独表示・代替再生だけ表示側で進める。
 video.addEventListener("ended", () => {
-  if (!connected || usingFallback) setScene(window.vrNextSceneId(currentScene.id), true);
+  if (!connected || usingFallback) advanceDisplayRoute();
 });
 
 function handleSceneFailure() {
@@ -158,7 +172,10 @@ video.addEventListener("canplay", () => {
 function syncRemotePlayback() {
   if (!connected || !currentScene || currentScene.id !== desiredRemoteSceneId) return;
   if (video.readyState < HTMLMediaElement.HAVE_METADATA || !Number.isFinite(desiredRemoteSceneTime)) return;
-  const safeTime = Math.min(desiredRemoteSceneTime, Math.max(0, (video.duration || desiredRemoteSceneTime) - 0.2));
+  const endAt = Number.isFinite(currentScene.endSec)
+    ? Math.min(currentScene.endSec, video.duration || currentScene.endSec)
+    : (video.duration || desiredRemoteSceneTime);
+  const safeTime = Math.min(desiredRemoteSceneTime, Math.max(currentScene.startSec || 0, endAt - 0.2));
   if (Math.abs(video.currentTime - safeTime) > 1.5) video.currentTime = safeTime;
 }
 video.addEventListener("loadedmetadata", syncRemotePlayback);
@@ -169,7 +186,8 @@ video.addEventListener("loadedmetadata", () => {
   const startAt = currentScene?.startSec || 0;
   const remoteControls = connected && currentScene?.id === desiredRemoteSceneId;
   if (!remoteControls && startAt > 0 && video.currentTime < startAt && Number.isFinite(video.duration)) {
-    video.currentTime = Math.min(startAt, Math.max(0, video.duration - 0.25));
+    const endAt = Number.isFinite(currentScene.endSec) ? Math.min(currentScene.endSec, video.duration) : video.duration;
+    video.currentTime = Math.min(startAt, Math.max(startAt, endAt - 0.25));
   }
 });
 
@@ -245,7 +263,7 @@ function update(now) {
       const rate = window.vrRateFor(displaySpeed, currentScene.baseSpeed);
       if (Math.abs(video.playbackRate - rate) > 0.02) video.playbackRate = rate;
       
-      if (video.paused && !video.dataset.playPending) {
+      if (video.paused && !video.dataset.playPending && !video.dataset.segmentEnded) {
         video.dataset.playPending = "true";
         video.play()
           .then(() => { video.dataset.playPending = ""; })
@@ -390,7 +408,7 @@ $("vrBtn").addEventListener("click", async () => {
     });
     renderer.xr.setReferenceSpaceType("local-floor");
     await renderer.xr.setSession(session);
-    if (video.paused && displaySpeed >= STOP_SPEED && !video.dataset.playPending) {
+    if (video.paused && displaySpeed >= STOP_SPEED && !video.dataset.playPending && !video.dataset.segmentEnded) {
       video.dataset.playPending = "true";
       video.play()
         .then(() => { video.dataset.playPending = ""; })
@@ -432,7 +450,7 @@ initXRIfSupported();
 // ================= 自動再生ブロック解除 =================
 function setupUnlock() {
   const unlock = () => {
-    if (video.paused) {
+    if (video.paused && !video.dataset.segmentEnded) {
       video.play().then(() => {
         if (displaySpeed < STOP_SPEED) video.pause();
       }).catch(() => {});
