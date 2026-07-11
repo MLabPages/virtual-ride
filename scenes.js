@@ -55,6 +55,11 @@ window.vrRateFor = function (speed, baseSpeed) {
   return Math.min(t.RATE_MAX, Math.max(t.RATE_MIN, speed / baseSpeed));
 };
 
+window.vrSceneIndex = function (id) {
+  const index = window.VR_SCENES.findIndex((scene) => scene.id === id);
+  return index >= 0 ? index : 0;
+};
+
 window.vrSceneById = function (id) {
   return window.VR_SCENES.find((s) => s.id === id) || window.VR_SCENES[0];
 };
@@ -74,8 +79,53 @@ window.vrRouteEstimateSec = function (referenceSpeed = window.VR_REFERENCE_SPEED
   }, 0);
 };
 
+// 各映像を「その映像が自然に見える速度」で進んだ距離に置き換え、
+// ルート全体の現在地・残り時間をスマホ側と表示側で同じ計算にする。
+window.vrRouteDistanceKm = function () {
+  return window.VR_SCENES.reduce((sum, scene) => {
+    return sum + ((scene.durationSec || 0) * scene.baseSpeed) / 3600;
+  }, 0);
+};
+
+window.vrRouteProgress = function (sceneId, currentTime = 0) {
+  const list = window.VR_SCENES;
+  const index = window.vrSceneIndex(sceneId);
+  const completedKm = list.slice(0, index).reduce((sum, scene) => {
+    return sum + ((scene.durationSec || 0) * scene.baseSpeed) / 3600;
+  }, 0);
+  const scene = list[index];
+  const elapsed = Math.min(
+    scene.durationSec || 0,
+    Math.max(0, Number(currentTime) || 0)
+  );
+  const currentKm = (elapsed * scene.baseSpeed) / 3600;
+  const totalKm = window.vrRouteDistanceKm();
+  return totalKm ? Math.min(1, Math.max(0, (completedKm + currentKm) / totalKm)) : 0;
+};
+
+window.vrRouteRemainingSec = function (sceneId, currentTime = 0, speed = window.VR_REFERENCE_SPEED) {
+  const list = window.VR_SCENES;
+  const index = window.vrSceneIndex(sceneId);
+  const safeSpeed = Number.isFinite(speed) && speed >= window.VR_TUNING.STOP_SPEED
+    ? speed
+    : window.VR_REFERENCE_SPEED;
+  return list.slice(index).reduce((sum, scene, offset) => {
+    const elapsed = offset === 0 ? Math.max(0, Number(currentTime) || 0) : 0;
+    const remainingVideoSec = Math.max(0, (scene.durationSec || 0) - elapsed);
+    return sum + remainingVideoSec / window.vrRateFor(safeSpeed, scene.baseSpeed);
+  }, 0);
+};
+
+window.vrFormatDuration = function (seconds) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  if (!minutes) return `${rest}秒`;
+  return rest ? `${minutes}分${rest}秒` : `${minutes}分`;
+};
+
 window.vrRouteMinutesText = function () {
-  return `18km/h想定で約${Math.round(window.vrRouteEstimateSec() / 60)}分`;
+  return `${window.VR_REFERENCE_SPEED}km/h想定で約${Math.round(window.vrRouteEstimateSec() / 60)}分`;
 };
 
 window.vrApplySceneFraming = function (video, scene) {

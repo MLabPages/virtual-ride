@@ -3,7 +3,7 @@
 // スマホ(送信側)と Quest 表示(受信側)を WebRTC でつなぐ薄いラッパー。
 // 接続の仲介(シグナリング)だけ PeerJS の無料ブローカーを使い、
 // 実際のデータ(速度の数値のみ)は端末どうしで直接やり取りする。
-// ★カメラ映像などの重いデータは一切送らない。送るのは { speed, rpm, sceneId }。
+  // ★カメラ映像などの重いデータは一切送らない。送るのは速度・回転数・走行状況の数値。
 //
 // 使い方:
 //   const host = VRLink.host({ onData, onStatus });   // Quest 側 → host.code に4桁コード
@@ -11,10 +11,22 @@
 
 (function () {
   const PREFIX = "virtualride-";
-  const BROKER = { debug: 1 }; // PeerJS 既定の無料クラウドブローカーを使用
+  const BROKER = { debug: 0 }; // PeerJS 既定の無料クラウドブローカーを使用
 
   function makeCode() {
-    return String(Math.floor(1000 + Math.random() * 9000)); // 4桁
+    if (window.crypto?.getRandomValues) {
+      const values = new Uint16Array(1);
+      do { window.crypto.getRandomValues(values); } while (values[0] >= 63000);
+      return String(1000 + (values[0] % 9000));
+    }
+    return String(Math.floor(1000 + Math.random() * 9000));
+  }
+
+  function reconnectPeer(peer) {
+    if (!peer || peer.destroyed) return;
+    window.setTimeout(() => {
+      try { if (!peer.destroyed && peer.disconnected) peer.reconnect(); } catch (_) {}
+    }, 800);
   }
 
   function ensurePeerLib() {
@@ -39,10 +51,22 @@
         onOpen && onOpen(code);
       });
       peer.on("connection", (conn) => {
+        if (state.conn) {
+          conn.close();
+          return;
+        }
         state.conn = conn;
         conn.on("open", () => onStatus && onStatus("connected", code));
         conn.on("data", (data) => onData && onData(data));
-        conn.on("close", () => onStatus && onStatus("disconnected", code));
+        conn.on("close", () => {
+          if (state.conn !== conn) return;
+          state.conn = null;
+          onStatus && onStatus("disconnected", code);
+          onClose && onClose();
+        });
+        conn.on("error", (err) => {
+          if (state.conn === conn) onStatus && onStatus("error", err && err.type);
+        });
       });
       peer.on("error", (err) => {
         // コードが偶然使われていたら別コードで数回だけ再試行
@@ -54,7 +78,7 @@
         onStatus && onStatus("error", err && err.type);
         onClose && onClose(err);
       });
-      peer.on("disconnected", () => peer.reconnect());
+      peer.on("disconnected", () => reconnectPeer(peer));
     }
 
     start();
@@ -71,14 +95,18 @@
       const conn = peer.connect(PREFIX + code, { reliable: false }); // 低遅延優先
       api.conn = conn;
       conn.on("open", () => { api.connected = true; onOpen && onOpen(); onStatus && onStatus("connected"); });
-      conn.on("close", () => { api.connected = false; onStatus && onStatus("disconnected"); });
+      conn.on("close", () => {
+        api.connected = false;
+        onStatus && onStatus("disconnected");
+        onClose && onClose();
+      });
       conn.on("error", (err) => onStatus && onStatus("error", err && err.type));
     });
     peer.on("error", (err) => {
       onStatus && onStatus("error", err && err.type);
       onClose && onClose(err);
     });
-    peer.on("disconnected", () => peer.reconnect());
+    peer.on("disconnected", () => reconnectPeer(peer));
 
     function send(obj) {
       if (api.conn && api.connected) {

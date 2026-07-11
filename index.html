@@ -4,29 +4,52 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0b1020">
+<meta name="color-scheme" content="dark">
+<meta name="description" content="ペダルの速さに景色が連動する、ルームバイク向けの没入型バーチャルライド。カメラ計測・手動操作・PC表示に対応。">
 <title>バーチャルライド | ルームバイクで街めぐり</title>
+<link rel="preconnect" href="https://assets.mixkit.co" crossorigin>
+<link rel="preconnect" href="https://unpkg.com" crossorigin>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<main id="stage">
-  <video id="sceneVideo" playsinline muted preload="auto"></video>
-  <div id="vignette"></div>
-  <div id="sceneFade"></div>
+<main id="stage" class="freshStart">
+  <h1 class="visuallyHidden">バーチャルライド</h1>
+  <video id="sceneVideo" playsinline muted preload="auto" aria-hidden="true"></video>
+  <div id="vignette" aria-hidden="true"></div>
+  <div id="sceneFade" aria-hidden="true"></div>
 
   <!-- 停止中の案内 -->
-  <div id="pausedOverlay">
+  <div id="pausedOverlay" aria-hidden="false">
     <div class="pausedCard">
-      <div class="pausedIcon">🚴</div>
+      <div class="pausedEyebrow">SCENIC RIDE</div>
+      <div class="pausedIcon" aria-hidden="true">🚴</div>
       <div class="pausedText">ペダルを漕ぐと出発します</div>
       <div class="pausedSub" id="pausedSub">下のバーで計測方法を選んでください</div>
+      <button id="quickStartBtn" class="quickStartBtn" type="button">18 km/hで試す</button>
+      <div class="pausedKeys">キーボード: Spaceで開始・停止 / ← →で速度変更</div>
     </div>
   </div>
 
   <!-- 走行情報(HUD) -->
-  <header id="hud">
-    <div class="hudSpeed">
-      <span id="speedValue">0.0</span>
-      <span class="hudUnit">km/h</span>
+  <header id="hud" aria-label="走行情報">
+    <div class="hudMain">
+      <div class="hudSpeed">
+        <span id="speedValue">0.0</span>
+        <span class="hudUnit">km/h</span>
+      </div>
+      <div class="hudJourney">
+        <div class="journeyHeadline">
+          <span id="sceneTitle">海沿いの道路</span>
+          <span id="routePercent">0%</span>
+        </div>
+        <div id="routeTrack" class="routeTrack" role="progressbar" aria-label="ルート進捗" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <div id="routeProgress"></div>
+        </div>
+        <div class="journeyMeta">
+          <span id="nextScene">次: 山道へ</span>
+          <span id="routeEta">約11分</span>
+        </div>
+      </div>
     </div>
     <div class="hudSub">
       <span class="hudItem"><span id="rpmValue">–</span> rpm</span>
@@ -38,37 +61,41 @@
 
   <!-- カメラ計測パネル -->
   <aside id="cameraPanel" hidden>
-    <video id="camPreview" playsinline muted></video>
+    <video id="camPreview" playsinline muted aria-label="カメラに映っているペダルの確認映像"></video>
     <div class="motionBarWrap"><div id="motionBar"></div></div>
     <div id="camStatus">カメラ準備中…</div>
+    <div id="cameraAnnouncement" class="visuallyHidden" role="status" aria-live="polite" aria-atomic="true"></div>
     <div id="camGuide">スマホは横からペダル撮影。映像は🖥表示画面で見ると安全です。</div>
     <div id="camPrivacy">🔒 映像は端末内だけで処理し、保存・送信しません</div>
   </aside>
 
   <!-- Quest 接続中バッジ -->
-  <div id="questBadge" hidden>
-    🥽 Questへ送信中
-    <button id="questDisconnect" title="切断">×</button>
+  <div id="questBadge" role="status" hidden>
+    🖥 表示画面へ送信中
+    <button id="questDisconnect" type="button" title="切断" aria-label="表示画面との接続を切る">×</button>
   </div>
 
   <!-- 操作バー -->
   <footer id="controls">
-    <div class="controlRow">
-      <div id="sceneChips" class="sceneChips"></div>
+    <div class="controlRow sceneRow">
+      <nav id="sceneChips" class="sceneChips" aria-label="ルートの章"></nav>
     </div>
     <div class="controlRow mainRow">
       <div class="modeToggle" role="group" aria-label="計測方法">
-        <button id="modeCameraBtn" class="modeBtn">📷 カメラ計測</button>
-        <button id="modeManualBtn" class="modeBtn active">🎚 手動</button>
+        <button id="modeCameraBtn" class="modeBtn" type="button" aria-pressed="false">📷 カメラ計測</button>
+        <button id="modeManualBtn" class="modeBtn active" type="button" aria-pressed="true">🎚 手動</button>
       </div>
       <div id="manualWrap" class="manualWrap">
+        <button id="speedDownBtn" class="speedStepBtn" type="button" aria-label="速度を1 km/h下げる">−</button>
         <input id="manualSlider" type="range" min="0" max="40" step="0.5" value="0" aria-label="速度(km/h)">
+        <output id="manualSpeedOutput" for="manualSlider">0</output>
+        <button id="speedUpBtn" class="speedStepBtn" type="button" aria-label="速度を1 km/h上げる">＋</button>
       </div>
       <div class="iconBtns">
-        <button id="questBtn" class="iconBtn" title="PC・モニター・Questに映像を出す">🖥</button>
-        <button id="resetBtn" class="iconBtn" title="距離・時間をリセット">↺</button>
-        <button id="settingsBtn" class="iconBtn" title="設定">⚙</button>
-        <button id="fullscreenBtn" class="iconBtn" title="全画面">⛶</button>
+        <button id="questBtn" class="iconBtn" type="button" title="PC・モニター・Questに映像を出す" aria-label="別の画面に映す">🖥</button>
+        <button id="resetBtn" class="iconBtn" type="button" title="走行記録を見る・リセット" aria-label="走行記録を見る">↺</button>
+        <button id="settingsBtn" class="iconBtn" type="button" title="設定" aria-label="設定を開く">⚙</button>
+        <button id="fullscreenBtn" class="iconBtn" type="button" title="全画面" aria-label="全画面表示を切り替える">⛶</button>
       </div>
     </div>
   </footer>
@@ -96,15 +123,44 @@
           <option value="low">低い(誤検出を減らす)</option>
         </select>
       </label>
+      <label class="settingRow settingCheck">
+        <span>走行中は操作バーを自動で隠す</span>
+        <input id="autoHideInput" type="checkbox">
+      </label>
+      <label class="settingRow settingCheck">
+        <span>速度に合わせて風音を流す</span>
+        <input id="windSoundInput" type="checkbox">
+      </label>
       <p class="settingsNote">
         🔒 <strong>プライバシー:</strong> カメラ映像はこの端末のブラウザ内だけで処理され、
-        どこにも保存・送信されません(通信は一切行いません)。<br>
+        保存・送信されません。景観動画の読み込みと画面接続にはインターネット通信を使います。<br>
         映像素材はすべて <a href="https://mixkit.co/license/" target="_blank" rel="noopener">Mixkit Stock Video Free License</a> の
         素材です(無料・商用利用可)。
         <a href="#" id="creditLink">映像クレジット一覧</a>
       </p>
+      <p class="shortcutHelp"><strong>ショートカット:</strong> Space 開始/停止 ・ ← → 速度 ・ F 全画面 ・ R 走行記録</p>
       <div id="creditList" hidden></div>
       <div class="dialogBtns"><button value="close" class="primaryBtn">閉じる</button></div>
+    </form>
+  </dialog>
+
+  <!-- 走行記録 -->
+  <dialog id="sessionDialog">
+    <form method="dialog">
+      <p class="dialogEyebrow">RIDE SUMMARY</p>
+      <h2>今回の走行</h2>
+      <div class="summaryGrid">
+        <div><strong id="summaryDistance">0.00</strong><span>km</span></div>
+        <div><strong id="summaryTime">0:00</strong><span>走行時間</span></div>
+        <div><strong id="summaryAverage">0.0</strong><span>平均 km/h</span></div>
+        <div><strong id="summaryMax">0.0</strong><span>最高 km/h</span></div>
+      </div>
+      <p id="summaryRoute" class="summaryRoute">海から夕暮れへのルートを0%走行</p>
+      <p class="settingsNote">記録はこの端末内だけに保存され、12時間以内の再読み込みなら続きから再開できます。</p>
+      <div class="dialogBtns summaryBtns">
+        <button id="clearSessionBtn" type="button" class="dangerGhostBtn">記録をリセット</button>
+        <button value="close" class="primaryBtn">走行に戻る</button>
+      </div>
     </form>
   </dialog>
 
@@ -119,10 +175,10 @@
       </ol>
       <input id="questCodeInput" type="text" inputmode="numeric" pattern="[0-9]*"
              maxlength="4" placeholder="1234" aria-label="接続コード">
-      <div id="questStatus" class="questStatus"></div>
+      <div id="questStatus" class="questStatus" role="status" aria-live="polite"></div>
       <p class="settingsNote">
         スマホはペダル撮影用としてバイク横に置き、映像は大きい画面で見ます。
-        送信されるのは<strong>速度の数値だけ</strong>です。カメラ映像は送りません。
+        送信されるのは<strong>速度・回転数・走行距離・時間・進行度などの数値だけ</strong>です。カメラ映像は送りません。
         接続の仲介にのみ外部サービス(PeerJS)を使います。
       </p>
       <div class="dialogBtns">
@@ -131,6 +187,7 @@
       </div>
     </form>
   </dialog>
+  <div id="rideToast" class="rideToast" role="status" aria-live="polite" aria-atomic="true"></div>
 </main>
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script src="scenes.js"></script>

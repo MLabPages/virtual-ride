@@ -10,19 +10,39 @@ const defaultSettings = {
   legMode: "both",       // both: 両足が映る / single: 片足だけ映る
   sensitivity: "mid",
   sceneId: SCENES[0].id,
+  manualSpeed: 18,
+  autoHideControls: true,
+  windSound: false,
 };
-const settings = { ...defaultSettings, ...loadSettings() };
+const settings = normalizeSettings({ ...defaultSettings, ...loadSettings() });
+
+function normalizeSettings(value) {
+  const normalized = { ...value };
+  normalized.mPerRev = Math.min(8, Math.max(2, Number(normalized.mPerRev) || defaultSettings.mPerRev));
+  normalized.legMode = ["both", "single"].includes(normalized.legMode) ? normalized.legMode : defaultSettings.legMode;
+  normalized.sensitivity = ["high", "mid", "low"].includes(normalized.sensitivity)
+    ? normalized.sensitivity
+    : defaultSettings.sensitivity;
+  normalized.sceneId = SCENES.some((scene) => scene.id === normalized.sceneId)
+    ? normalized.sceneId
+    : defaultSettings.sceneId;
+  normalized.manualSpeed = Math.min(40, Math.max(1, Number(normalized.manualSpeed) || defaultSettings.manualSpeed));
+  normalized.autoHideControls = normalized.autoHideControls !== false;
+  normalized.windSound = normalized.windSound === true;
+  return normalized;
+}
 
 function loadSettings() {
   try { return JSON.parse(localStorage.getItem("virtual-ride:settings")) || {}; }
   catch { return {}; }
 }
 function saveSettings() {
-  localStorage.setItem("virtual-ride:settings", JSON.stringify(settings));
+  try { localStorage.setItem("virtual-ride:settings", JSON.stringify(settings)); } catch (_) {}
 }
 
 // ================= 要素 =================
 const $ = (id) => document.getElementById(id);
+const stage = $("stage");
 const sceneVideo = $("sceneVideo");
 const sceneFade = $("sceneFade");
 sceneVideo.crossOrigin = "anonymous";
@@ -34,48 +54,163 @@ const rpmValue = $("rpmValue");
 const distValue = $("distValue");
 const timeValue = $("timeValue");
 const rateValue = $("rateValue");
+const sceneTitle = $("sceneTitle");
+const routePercent = $("routePercent");
+const routeProgress = $("routeProgress");
+const routeTrack = $("routeTrack");
+const nextScene = $("nextScene");
+const routeEta = $("routeEta");
 const cameraPanel = $("cameraPanel");
 const camPreview = $("camPreview");
 const motionBar = $("motionBar");
 const camStatus = $("camStatus");
+const cameraAnnouncement = $("cameraAnnouncement");
 const manualSlider = $("manualSlider");
+const manualSpeedOutput = $("manualSpeedOutput");
 const manualWrap = $("manualWrap");
+const quickStartBtn = $("quickStartBtn");
+const rideToast = $("rideToast");
 
 // ================= 走行状態 =================
+const SESSION_KEY = "virtual-ride:session";
+const SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+const restoredSession = loadSession();
 let mode = "manual";        // "manual" | "camera"
 let targetSpeed = 0;        // 計測から得た速度 km/h
 let displaySpeed = 0;       // なめらかに追従する表示用速度
 let currentRpm = null;
-let distanceM = 0;
-let movingSec = 0;
+let distanceM = restoredSession?.distanceM || 0;
+let movingSec = restoredSession?.movingSec || 0;
+let maxSpeed = restoredSession?.maxSpeed || 0;
+let routeLaps = restoredSession?.routeLaps || 0;
 let currentScene = null;
+let rideWasMoving = false;
+let pendingResumeTime = restoredSession?.sceneTime || 0;
+let resumeSceneId = restoredSession?.sceneId || null;
+let lastSessionSavedAt = 0;
+
+function loadSession() {
+  try {
+    const value = JSON.parse(localStorage.getItem(SESSION_KEY));
+    if (!value || Date.now() - Number(value.updatedAt) > SESSION_MAX_AGE_MS) return null;
+    return {
+      distanceM: Math.max(0, Number(value.distanceM) || 0),
+      movingSec: Math.max(0, Number(value.movingSec) || 0),
+      maxSpeed: Math.min(40, Math.max(0, Number(value.maxSpeed) || 0)),
+      routeLaps: Math.max(0, Math.floor(Number(value.routeLaps) || 0)),
+      sceneId: SCENES.some((scene) => scene.id === value.sceneId) ? value.sceneId : null,
+      sceneTime: Math.max(0, Number(value.sceneTime) || 0),
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function saveSession(force = false) {
+  const now = Date.now();
+  if (!force && now - lastSessionSavedAt < 2000) return;
+  lastSessionSavedAt = now;
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      distanceM,
+      movingSec,
+      maxSpeed,
+      routeLaps,
+      sceneId: pendingSceneId || currentScene?.id || settings.sceneId,
+      sceneTime: pendingSceneId ? 0 : (Number.isFinite(sceneVideo.currentTime) ? sceneVideo.currentTime : 0),
+      updatedAt: now,
+    }));
+  } catch (_) {}
+}
+
+let toastTimer = null;
+function showToast(message, duration = 2800, kind = "info") {
+  clearTimeout(toastTimer);
+  rideToast.textContent = message;
+  rideToast.dataset.kind = kind;
+  if (duration > 0) toastTimer = setTimeout(hideToast, duration);
+}
+function hideToast() {
+  clearTimeout(toastTimer);
+  rideToast.textContent = "";
+  rideToast.dataset.kind = "";
+}
 
 // ================= シーン =================
 function buildSceneChips() {
   const wrap = $("sceneChips");
   SCENES.filter((scene) => scene.chip !== false).forEach((scene) => {
     const btn = document.createElement("button");
+    btn.type = "button";
     btn.className = "sceneChip";
     btn.textContent = scene.title;
     btn.dataset.sceneId = scene.id;
+    btn.setAttribute("aria-pressed", "false");
+    btn.setAttribute("aria-label", `${scene.title}から走る`);
     btn.addEventListener("click", () => setScene(scene.id, true, true));
     wrap.appendChild(btn);
   });
 }
 
 let sceneTransitionTimer = null;
+let pendingSceneId = null;
+let sceneLoadToken = 0;
+let handledFailureToken = -1;
+let sceneLoadTimer = null;
+let waitingToastTimer = null;
+let allScenesUnavailable = false;
+const failedScenes = new Map();
+const nextPreloader = document.createElement("video");
+nextPreloader.muted = true;
+nextPreloader.preload = "metadata";
+nextPreloader.crossOrigin = "anonymous";
+
+function updateSceneChips(sceneId) {
+  const activeChipId = window.vrChapterSceneId(sceneId);
+  document.querySelectorAll(".sceneChip").forEach((el) => {
+    const active = el.dataset.sceneId === activeChipId;
+    el.classList.toggle("active", active);
+    el.setAttribute("aria-pressed", String(active));
+  });
+}
+
+function preloadNextScene() {
+  if (!currentScene || navigator.connection?.saveData || /(^|-)2g$/.test(navigator.connection?.effectiveType || "")) return;
+  const next = window.vrSceneById(window.vrNextSceneId(currentScene.id));
+  if (nextPreloader.dataset.sceneId === next.id) return;
+  nextPreloader.dataset.sceneId = next.id;
+  nextPreloader.src = next.file;
+  nextPreloader.load();
+}
 
 function applyScene(sceneId, persist = true) {
   const scene = window.vrSceneById(sceneId);
+  sceneLoadToken += 1;
+  const loadToken = sceneLoadToken;
+  pendingSceneId = null;
   currentScene = scene;
   if (persist) { settings.sceneId = scene.id; saveSettings(); }
-  const activeChipId = window.vrChapterSceneId(scene.id);
-  document.querySelectorAll(".sceneChip").forEach((el) => {
-    el.classList.toggle("active", el.dataset.sceneId === activeChipId);
-  });
+  updateSceneChips(scene.id);
+  sceneTitle.textContent = scene.title;
   window.vrApplySceneFraming(sceneVideo, scene);
   sceneVideo.src = scene.file;
   sceneVideo.load();
+  clearTimeout(sceneLoadTimer);
+  sceneLoadTimer = setTimeout(() => {
+    if (sceneLoadToken === loadToken && sceneVideo.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+      handleSceneFailure("timeout");
+    }
+  }, 12000);
+  if (resumeSceneId === scene.id && pendingResumeTime > 0) {
+    const resumeAtSavedTime = () => {
+      if (currentScene?.id === scene.id && Number.isFinite(sceneVideo.duration)) {
+        sceneVideo.currentTime = Math.min(pendingResumeTime, Math.max(0, sceneVideo.duration - 0.25));
+      }
+      pendingResumeTime = 0;
+      resumeSceneId = null;
+    };
+    sceneVideo.addEventListener("loadedmetadata", resumeAtSavedTime, { once: true });
+  }
   sceneVideo.dataset.playPending = "";
   if (displaySpeed >= STOP_SPEED) {
     sceneVideo.dataset.playPending = "true";
@@ -89,16 +224,27 @@ function applyScene(sceneId, persist = true) {
 }
 
 function setScene(sceneId, persist = true, transition = false) {
+  const scene = window.vrSceneById(sceneId);
+  if (currentScene?.id === scene.id) {
+    if (pendingSceneId && pendingSceneId !== scene.id) {
+      clearTimeout(sceneTransitionTimer);
+      pendingSceneId = null;
+      if (sceneFade) sceneFade.classList.remove("visible");
+    }
+    return;
+  }
+  if (pendingSceneId === scene.id) return;
   if (transition && currentScene && sceneFade) {
+    pendingSceneId = scene.id;
     sceneFade.classList.add("visible");
     clearTimeout(sceneTransitionTimer);
     sceneTransitionTimer = setTimeout(() => {
-      applyScene(sceneId, persist);
+      applyScene(scene.id, persist);
       requestAnimationFrame(() => sceneFade.classList.remove("visible"));
     }, 260);
     return;
   }
-  applyScene(sceneId, persist);
+  applyScene(scene.id, persist);
   if (sceneFade) sceneFade.classList.remove("visible");
 }
 
@@ -113,19 +259,97 @@ sceneVideo.addEventListener("timeupdate", cueSceneFade);
 
 // 映像が最後まで再生されたら、次の景色へ自動で進む(旅モード)
 sceneVideo.addEventListener("ended", () => {
-  setScene(window.vrNextSceneId(currentScene.id), false, true);
-});
-sceneVideo.addEventListener("error", () => {
-  if (currentScene) setScene(window.vrNextSceneId(currentScene.id), false, true);
+  const nextId = window.vrNextSceneId(currentScene.id);
+  if (nextId === SCENES[0].id) {
+    routeLaps += 1;
+    showToast(`ルート完走！ ${routeLaps + 1}周目へ`, 4200);
+  }
+  setScene(nextId, false, true);
+  saveSession(true);
 });
 
+function handleSceneFailure() {
+  if (!currentScene || handledFailureToken === sceneLoadToken) return;
+  handledFailureToken = sceneLoadToken;
+  clearTimeout(sceneLoadTimer);
+  failedScenes.set(currentScene.id, Date.now());
+  const now = Date.now();
+  let candidateId = currentScene.id;
+  for (let i = 0; i < SCENES.length; i++) {
+    candidateId = window.vrNextSceneId(candidateId);
+    const failedAt = failedScenes.get(candidateId) || 0;
+    if (now - failedAt > 60000) {
+      showToast("別の景色へ切り替えています…", 2200, "media");
+      setScene(candidateId, false, true);
+      return;
+    }
+  }
+  allScenesUnavailable = true;
+  targetSpeed = 0;
+  showToast("景観動画を読み込めません。通信を確認し、画面をタップして再試行してください。", 0, "media");
+}
+
+function retryRideMedia() {
+  if (!allScenesUnavailable) return;
+  allScenesUnavailable = false;
+  failedScenes.clear();
+  handledFailureToken = -1;
+  hideToast();
+  applyScene(currentScene?.id || SCENES[0].id, false);
+}
+
+sceneVideo.addEventListener("error", handleSceneFailure);
+sceneVideo.addEventListener("canplay", () => {
+  clearTimeout(sceneLoadTimer);
+  failedScenes.delete(currentScene?.id);
+  preloadNextScene();
+});
+sceneVideo.addEventListener("waiting", () => {
+  clearTimeout(waitingToastTimer);
+  waitingToastTimer = setTimeout(() => {
+    if (displaySpeed >= STOP_SPEED) showToast("景色を読み込み中…", 0, "media");
+  }, 700);
+});
+sceneVideo.addEventListener("playing", () => {
+  clearTimeout(waitingToastTimer);
+  if (rideToast.dataset.kind === "media" && !allScenesUnavailable) hideToast();
+});
+window.addEventListener("online", retryRideMedia);
+
 // ================= 計測モード =================
+function setManualSpeed(value, remember = true) {
+  const speed = Math.min(40, Math.max(0, Number(value) || 0));
+  manualSlider.value = String(speed);
+  manualSpeedOutput.textContent = Number.isInteger(speed) ? String(speed) : speed.toFixed(1);
+  manualSlider.setAttribute("aria-valuetext", `${speed} km/h`);
+  if (mode === "manual") targetSpeed = speed;
+  if (remember && speed >= STOP_SPEED) {
+    settings.manualSpeed = speed;
+    saveSettings();
+  }
+}
+
+function toggleManualRide() {
+  if (mode !== "manual") setMode("manual");
+  const shouldStop = targetSpeed >= STOP_SPEED || displaySpeed >= STOP_SPEED;
+  setManualSpeed(shouldStop ? 0 : settings.manualSpeed, false);
+  if (!shouldStop) {
+    requestWakeLock();
+    if (settings.windSound) ensureWindAudio();
+  }
+}
+
 function setMode(newMode) {
   mode = newMode;
-  $("modeCameraBtn").classList.toggle("active", mode === "camera");
-  $("modeManualBtn").classList.toggle("active", mode === "manual");
+  const cameraActive = mode === "camera";
+  stage.classList.toggle("cameraMode", cameraActive);
+  $("modeCameraBtn").classList.toggle("active", cameraActive);
+  $("modeManualBtn").classList.toggle("active", !cameraActive);
+  $("modeCameraBtn").setAttribute("aria-pressed", String(cameraActive));
+  $("modeManualBtn").setAttribute("aria-pressed", String(!cameraActive));
   manualWrap.hidden = mode !== "manual";
   cameraPanel.hidden = mode !== "camera";
+  quickStartBtn.hidden = mode !== "manual";
   if (mode === "camera") {
     targetSpeed = 0;
     currentRpm = null;
@@ -147,6 +371,12 @@ function setMode(newMode) {
 let camStream = null;
 let camTimer = null;
 let analyzeTimer = null;
+let cameraRequestId = 0;
+let cameraStarting = false;
+let currentCameraState = "";
+let lastCameraAnnouncementAt = 0;
+let cameraAnnouncementTimer = null;
+let cameraAnnouncementToken = 0;
 let prevGray = null;
 let lastGoodTime = 0;
 const motionSamples = [];   // { t: 秒, m: 動き量 }
@@ -166,26 +396,65 @@ const SENS = {
 };
 let cadenceCandidate = null;
 
+function setCameraStatus(state, message, announcement = message) {
+  camStatus.textContent = message;
+  if (currentCameraState === state) return;
+  currentCameraState = state;
+  clearTimeout(cameraAnnouncementTimer);
+  const token = ++cameraAnnouncementToken;
+  const elapsed = performance.now() - lastCameraAnnouncementAt;
+  const delay = Math.max(900, 4500 - elapsed);
+  cameraAnnouncementTimer = setTimeout(() => {
+    if (token !== cameraAnnouncementToken || currentCameraState !== state) return;
+    cameraAnnouncement.textContent = "";
+    requestAnimationFrame(() => {
+      if (token !== cameraAnnouncementToken || currentCameraState !== state) return;
+      cameraAnnouncement.textContent = announcement;
+      lastCameraAnnouncementAt = performance.now();
+    });
+  }, delay);
+}
+
 function resetCadenceCandidate() {
   cadenceCandidate = null;
 }
 
 async function startCamera() {
-  if (camStream) return;
-  camStatus.textContent = "カメラ準備中…";
+  if (camStream || cameraStarting) return;
+  if (!navigator.mediaDevices?.getUserMedia) {
+    showToast("このブラウザではカメラ計測を利用できません。手動モードに戻しました。", 4800);
+    setMode("manual");
+    return;
+  }
+  cameraStarting = true;
+  const requestId = ++cameraRequestId;
+  currentCameraState = "";
+  setCameraStatus("preparing", "カメラ準備中…");
+  let stream;
   try {
-    camStream = await navigator.mediaDevices.getUserMedia({
+    stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: "environment", width: { ideal: 320 }, height: { ideal: 240 } },
       audio: false,
     });
   } catch (err) {
-    camStatus.textContent = "カメラを使えませんでした。ブラウザの許可設定を確認してください。";
+    if (requestId !== cameraRequestId) return;
+    cameraStarting = false;
+    setCameraStatus("error", "カメラを使えませんでした。ブラウザの許可設定を確認してください。");
     console.error(err);
+    showToast("カメラを開始できませんでした。手動モードに戻しました。", 4800);
+    setMode("manual");
     return;
   }
+  if (requestId !== cameraRequestId || mode !== "camera") {
+    stream.getTracks().forEach((track) => track.stop());
+    return;
+  }
+  cameraStarting = false;
+  camStream = stream;
   camPreview.srcObject = camStream;
   camPreview.play().catch(() => {});
-  camStatus.textContent = "ペダルの動きを探しています…";
+  setCameraStatus("searching", "ペダルの動きを探しています…", "ペダルの動きを探しています。一定のペースで漕いでください。");
+  showToast("カメラの準備ができました。一定のペースで漕いでください。", 3600);
   prevGray = null;
   motionSamples.length = 0;
   camTimer = setInterval(sampleMotion, 1000 / SAMPLE_HZ);
@@ -193,6 +462,12 @@ async function startCamera() {
 }
 
 function stopCamera() {
+  cameraRequestId += 1;
+  cameraStarting = false;
+  clearTimeout(cameraAnnouncementTimer);
+  cameraAnnouncementToken += 1;
+  currentCameraState = "";
+  cameraAnnouncement.textContent = "";
   clearInterval(camTimer);
   clearInterval(analyzeTimer);
   camTimer = analyzeTimer = null;
@@ -252,7 +527,7 @@ function analyzeCadence() {
   const values = motionSamples.map((s) => s.m);
   const mean = values.reduce((a, b) => a + b, 0) / values.length;
   if (mean < sens.minMotion) {
-    camStatus.textContent = "動きが見えません。ペダルが映る位置にスマホを置いてください。";
+    setCameraStatus("no-motion", "動きが見えません。ペダルが映る位置にスマホを置いてください。");
     resetCadenceCandidate();
     return;
   }
@@ -260,7 +535,7 @@ function analyzeCadence() {
   const meanFocus = motionSamples.reduce((a, s) => a + s.focus, 0) / motionSamples.length;
   const meanGlobal = motionSamples.reduce((a, s) => a + s.globalness, 0) / motionSamples.length;
   if (meanFocus < sens.minFocus || meanGlobal > sens.maxGlobal) {
-    camStatus.textContent = "画面全体の揺れを拾っています。スマホを固定し、ペダルだけが動く構図にしてください。";
+    setCameraStatus("camera-shake", "画面全体の揺れを拾っています。スマホを固定し、ペダルだけが動く構図にしてください。");
     resetCadenceCandidate();
     return;
   }
@@ -283,7 +558,7 @@ function analyzeCadence() {
   }
 
   if (bestLag < 0 || bestCorr < sens.minCorr) {
-    camStatus.textContent = "リズムを探しています…(一定のペースで漕いでみてください)";
+    setCameraStatus("searching-rhythm", "リズムを探しています…(一定のペースで漕いでみてください)", "ペダルのリズムを探しています。一定のペースで漕いでください。");
     resetCadenceCandidate();
     return;
   }
@@ -293,7 +568,7 @@ function analyzeCadence() {
   const revSec = settings.legMode === "both" ? periodSec * 2 : periodSec;
   const rpm = 60 / revSec;
   if (rpm < RPM_MIN || rpm > RPM_MAX) {
-    camStatus.textContent = "ペダルらしい速さではありません。カメラ位置と感度を調整してください。";
+    setCameraStatus("invalid-rhythm", "ペダルらしい速さではありません。カメラ位置と感度を調整してください。");
     resetCadenceCandidate();
     return;
   }
@@ -303,7 +578,7 @@ function analyzeCadence() {
   if (!cadenceCandidate || now - cadenceCandidate.t > 1800 ||
       Math.abs(rpm - cadenceCandidate.rpm) > Math.max(10, cadenceCandidate.rpm * 0.18)) {
     cadenceCandidate = { rpm, kmh, t: now, seen: 1 };
-    camStatus.textContent = "リズム確認中…";
+    setCameraStatus("confirming", "リズム確認中…");
     return;
   }
 
@@ -312,15 +587,16 @@ function analyzeCadence() {
   cadenceCandidate.t = now;
   cadenceCandidate.seen += 1;
   if (cadenceCandidate.seen < 2) {
-    camStatus.textContent = "リズム確認中…";
+    setCameraStatus("confirming", "リズム確認中…");
     return;
   }
 
+  if (currentRpm === null) showToast("ペダルのリズムを検出しました。", 2600);
   currentRpm = Math.round(cadenceCandidate.rpm);
   const maxStep = 3.2;
   targetSpeed += Math.max(-maxStep, Math.min(maxStep, cadenceCandidate.kmh - targetSpeed));
   lastGoodTime = performance.now();
-  camStatus.textContent = `検出中: ${currentRpm} rpm`;
+  setCameraStatus("detected", `検出中: ${currentRpm} rpm`, "ペダルのリズムを検出しています。");
 }
 
 // 漕ぐのをやめたら、惰性で走るようにゆっくり減速させる
@@ -333,10 +609,94 @@ setInterval(() => {
   }
 }, 200);
 
+// ================= 旅の進捗・没入表示 =================
+let lastJourneyUpdateAt = 0;
+let lastInteractionAt = performance.now();
+
+function updateJourneyUI(now = performance.now()) {
+  if (!currentScene || now - lastJourneyUpdateAt < 200) return;
+  lastJourneyUpdateAt = now;
+  const progress = window.vrRouteProgress(currentScene.id, sceneVideo.currentTime);
+  const percent = Math.min(100, Math.max(0, Math.round(progress * 100)));
+  routeProgress.style.width = `${percent}%`;
+  routePercent.textContent = `${percent}%`;
+  routeTrack.setAttribute("aria-valuenow", String(percent));
+  const next = window.vrSceneById(window.vrNextSceneId(currentScene.id));
+  nextScene.textContent = `次: ${next.title}`;
+  const etaSpeed = displaySpeed >= STOP_SPEED ? displaySpeed : window.VR_REFERENCE_SPEED;
+  const remaining = window.vrRouteRemainingSec(currentScene.id, sceneVideo.currentTime, etaSpeed);
+  routeEta.textContent = displaySpeed >= STOP_SPEED
+    ? `残り ${window.vrFormatDuration(remaining)}`
+    : `${window.VR_REFERENCE_SPEED}km/hで ${window.vrFormatDuration(remaining)}`;
+}
+
+function noteInteraction() {
+  lastInteractionAt = performance.now();
+  stage.classList.remove("controlsQuiet");
+  retryRideMedia();
+}
+
+stage.addEventListener("pointerdown", noteInteraction);
+stage.addEventListener("pointermove", noteInteraction, { passive: true });
+document.addEventListener("keydown", noteInteraction);
+
+function updateImmersiveUi(now) {
+  const shouldHide = settings.autoHideControls &&
+    displaySpeed >= STOP_SPEED &&
+    now - lastInteractionAt > 4200 &&
+    !document.querySelector("dialog[open]") &&
+    !$("controls").matches(":focus-within");
+  stage.classList.toggle("controlsQuiet", shouldHide);
+}
+
+// ================= 速度連動の風音(端末内で生成・初期値OFF) =================
+let audioContext = null;
+let windGain = null;
+let windFilter = null;
+
+async function ensureWindAudio() {
+  if (!settings.windSound) return false;
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) {
+    settings.windSound = false;
+    saveSettings();
+    showToast("このブラウザでは風音を利用できません。", 3600);
+    return false;
+  }
+  if (!audioContext) {
+    audioContext = new AudioContextClass();
+    const buffer = audioContext.createBuffer(1, audioContext.sampleRate * 2, audioContext.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    const source = audioContext.createBufferSource();
+    windFilter = audioContext.createBiquadFilter();
+    windFilter.type = "lowpass";
+    windFilter.frequency.value = 900;
+    windGain = audioContext.createGain();
+    windGain.gain.value = 0;
+    source.buffer = buffer;
+    source.loop = true;
+    source.connect(windFilter).connect(windGain).connect(audioContext.destination);
+    source.start();
+  }
+  if (audioContext.state === "suspended") await audioContext.resume().catch(() => {});
+  return true;
+}
+
+function updateWindAudio(speed) {
+  if (!windGain || !audioContext) return;
+  const enabledSpeed = settings.windSound && speed >= STOP_SPEED ? speed : 0;
+  const level = Math.min(0.055, Math.max(0, (enabledSpeed / 40) * 0.055));
+  windGain.gain.setTargetAtTime(level, audioContext.currentTime, 0.18);
+  if (windFilter) windFilter.frequency.setTargetAtTime(650 + enabledSpeed * 28, audioContext.currentTime, 0.25);
+}
+
 // ================= メインループ =================
 let lastTick = performance.now();
 function tick(now) {
-  const dt = Math.min(0.2, (now - lastTick) / 1000);
+  const rawDt = Math.max(0, (now - lastTick) / 1000);
+  const dt = Math.min(0.2, rawDt);
+  const recordDt = document.visibilityState === "visible" ? Math.min(1, rawDt) : 0;
   lastTick = now;
 
   // 表示速度をなめらかに追従させる
@@ -361,11 +721,13 @@ function tick(now) {
       }
       
       pausedOverlay.classList.add("hidden");
+      pausedOverlay.setAttribute("aria-hidden", "true");
       rateValue.textContent = rate.toFixed(1);
     } else {
       sceneVideo.dataset.playPending = "";
       if (!sceneVideo.paused) sceneVideo.pause();
       pausedOverlay.classList.remove("hidden");
+      pausedOverlay.setAttribute("aria-hidden", "false");
       if (sceneFade) sceneFade.classList.remove("visible");
       rateValue.textContent = "0.0";
     }
@@ -373,16 +735,32 @@ function tick(now) {
 
   // 走行記録
   if (displaySpeed >= STOP_SPEED) {
-    distanceM += (displaySpeed / 3.6) * dt;
-    movingSec += dt;
+    distanceM += (displaySpeed / 3.6) * recordDt;
+    movingSec += recordDt;
+    maxSpeed = Math.max(maxSpeed, displaySpeed);
+    saveSession();
   }
 
   speedValue.textContent = displaySpeed.toFixed(1);
+  quickStartBtn.textContent = displaySpeed >= STOP_SPEED
+    ? "一時停止"
+    : `${settings.manualSpeed} km/hで出発`;
   rpmValue.textContent = mode === "camera" && currentRpm ? currentRpm : "–";
   distValue.textContent = (distanceM / 1000).toFixed(2);
   const min = Math.floor(movingSec / 60);
   const sec = Math.floor(movingSec % 60);
   timeValue.textContent = `${min}:${String(sec).padStart(2, "0")}`;
+  const movingNow = displaySpeed >= STOP_SPEED;
+  pausedOverlay.inert = movingNow;
+  quickStartBtn.tabIndex = movingNow ? -1 : 0;
+  if (movingNow) stage.classList.remove("freshStart");
+  if (movingNow && !rideWasMoving && document.activeElement === quickStartBtn) {
+    manualSlider.focus({ preventScroll: true });
+  }
+  rideWasMoving = movingNow;
+  updateJourneyUI(now);
+  updateImmersiveUi(now);
+  updateWindAudio(displaySpeed);
 
   // Quest へ速度を送信(約8Hz)
   if (questLink && questLink.connected && now - lastSentAt > 120) {
@@ -391,6 +769,10 @@ function tick(now) {
       speed: Number(displaySpeed.toFixed(2)),
       rpm: currentRpm || null,
       sceneId: currentScene ? currentScene.id : null,
+      sceneTime: Number.isFinite(sceneVideo.currentTime) ? Number(sceneVideo.currentTime.toFixed(2)) : 0,
+      distanceKm: Number((distanceM / 1000).toFixed(3)),
+      movingSec: Math.round(movingSec),
+      routeProgress: currentScene ? window.vrRouteProgress(currentScene.id, sceneVideo.currentTime) : 0,
     });
   }
 
@@ -404,20 +786,60 @@ async function requestWakeLock() {
 }
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") requestWakeLock();
+  else saveSession(true);
 });
+window.addEventListener("pagehide", () => saveSession(true));
 
 // ================= UI イベント =================
 $("modeCameraBtn").addEventListener("click", () => { setMode("camera"); requestWakeLock(); });
 $("modeManualBtn").addEventListener("click", () => setMode("manual"));
 manualSlider.addEventListener("input", () => {
-  if (mode === "manual") targetSpeed = Number(manualSlider.value);
+  setManualSpeed(manualSlider.value);
   requestWakeLock();
 });
-$("resetBtn").addEventListener("click", () => { distanceM = 0; movingSec = 0; });
+$("speedDownBtn").addEventListener("click", () => setManualSpeed(Number(manualSlider.value) - 1));
+$("speedUpBtn").addEventListener("click", () => setManualSpeed(Number(manualSlider.value) + 1));
+quickStartBtn.addEventListener("click", toggleManualRide);
+
+const sessionDialog = $("sessionDialog");
+function formatClock(totalSec) {
+  const total = Math.max(0, Math.floor(totalSec));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  return hours
+    ? `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+    : `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+function openSessionSummary() {
+  const average = movingSec > 0 ? (distanceM / 1000) / (movingSec / 3600) : 0;
+  const progress = currentScene ? window.vrRouteProgress(currentScene.id, sceneVideo.currentTime) : 0;
+  $("summaryDistance").textContent = (distanceM / 1000).toFixed(2);
+  $("summaryTime").textContent = formatClock(movingSec);
+  $("summaryAverage").textContent = average.toFixed(1);
+  $("summaryMax").textContent = maxSpeed.toFixed(1);
+  $("summaryRoute").textContent = routeLaps
+    ? `ルート${routeLaps}周完走・現在の周を${Math.round(progress * 100)}%走行`
+    : `海から夕暮れへのルートを${Math.round(progress * 100)}%走行`;
+  sessionDialog.showModal();
+}
+$("resetBtn").addEventListener("click", openSessionSummary);
+$("clearSessionBtn").addEventListener("click", () => {
+  distanceM = 0;
+  movingSec = 0;
+  maxSpeed = 0;
+  routeLaps = 0;
+  try { localStorage.removeItem(SESSION_KEY); } catch (_) {}
+  sessionDialog.close();
+  showToast("走行記録をリセットしました。", 2600);
+});
+
 $("fullscreenBtn").addEventListener("click", () => {
-  if (document.fullscreenElement) document.exitFullscreen();
+  if (!document.documentElement.requestFullscreen) return;
+  if (document.fullscreenElement) document.exitFullscreen?.();
   else document.documentElement.requestFullscreen().catch(() => {});
 });
+if (!document.documentElement.requestFullscreen) $("fullscreenBtn").hidden = true;
 
 // 設定ダイアログ
 const settingsDialog = $("settingsDialog");
@@ -425,13 +847,32 @@ $("settingsBtn").addEventListener("click", () => {
   $("mPerRevInput").value = settings.mPerRev;
   $("legModeSelect").value = settings.legMode;
   $("sensitivitySelect").value = settings.sensitivity;
+  $("autoHideInput").checked = settings.autoHideControls;
+  $("windSoundInput").checked = settings.windSound;
   settingsDialog.showModal();
 });
 settingsDialog.addEventListener("close", () => {
   settings.mPerRev = Math.min(8, Math.max(2, Number($("mPerRevInput").value) || defaultSettings.mPerRev));
   settings.legMode = $("legModeSelect").value;
   settings.sensitivity = $("sensitivitySelect").value;
+  settings.autoHideControls = $("autoHideInput").checked;
   saveSettings();
+});
+$("autoHideInput").addEventListener("change", () => {
+  settings.autoHideControls = $("autoHideInput").checked;
+  if (!settings.autoHideControls) stage.classList.remove("controlsQuiet");
+  saveSettings();
+});
+$("windSoundInput").addEventListener("change", async () => {
+  settings.windSound = $("windSoundInput").checked;
+  saveSettings();
+  if (settings.windSound) {
+    const started = await ensureWindAudio();
+    if (!started) $("windSoundInput").checked = false;
+    else showToast("風音をオンにしました。", 2200);
+  } else {
+    updateWindAudio(0);
+  }
 });
 $("creditLink").addEventListener("click", (e) => {
   e.preventDefault();
@@ -492,11 +933,36 @@ $("questDisconnect").addEventListener("click", () => {
   questBadge.hidden = true;
 });
 
+document.addEventListener("keydown", (event) => {
+  const target = event.target;
+  if (target instanceof Element && target.closest("button, a, input, select, textarea, [role='button'], [role='slider'], [contenteditable='true']")) return;
+  if (document.querySelector("dialog[open]")) return;
+  if (event.code === "Space") {
+    event.preventDefault();
+    toggleManualRide();
+  } else if (mode === "manual" && ["ArrowRight", "ArrowUp"].includes(event.key)) {
+    event.preventDefault();
+    setManualSpeed(Number(manualSlider.value) + 1);
+  } else if (mode === "manual" && ["ArrowLeft", "ArrowDown"].includes(event.key)) {
+    event.preventDefault();
+    setManualSpeed(Number(manualSlider.value) - 1);
+  } else if (event.key.toLowerCase() === "f") {
+    $("fullscreenBtn").click();
+  } else if (event.key.toLowerCase() === "r") {
+    openSessionSummary();
+  }
+});
+
 // ================= 起動 =================
 buildSceneChips();
-setScene(settings.sceneId);
+setManualSpeed(0, false);
+setScene(restoredSession?.sceneId || settings.sceneId, false);
 setMode("manual");
+if (restoredSession && (movingSec > 0 || distanceM > 0)) stage.classList.remove("freshStart");
 requestAnimationFrame(tick);
+if (restoredSession && (movingSec > 0 || distanceM > 0)) {
+  setTimeout(() => showToast("前回の走行記録を再開しました。", 3200), 650);
+}
 
 // ================= 自動再生ブロック解除 =================
 function setupUnlock() {
