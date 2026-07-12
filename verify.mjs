@@ -56,7 +56,7 @@ for (const scene of vr.VR_SCENES) {
 
 const referencedVideoNames = new Set(vr.VR_SCENES.map((scene) => scene.file.replace(/^videos\//, "")));
 const bundledVideoNames = readdirSync(new URL("./videos/", import.meta.url))
-  .filter((name) => name.toLowerCase().endsWith(".mp4"));
+  .filter((name) => /\.(mp4|webm)$/i.test(name));
 const unusedVideoNames = bundledVideoNames.filter((name) => !referencedVideoNames.has(name));
 if (unusedVideoNames.length) {
   console.warn(`Unused videos (${unusedVideoNames.length}): ${unusedVideoNames.join(", ")}`);
